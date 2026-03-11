@@ -1,0 +1,12 @@
+# Binary
+chunes
+
+# AI session files
+CLAUDE.md
+WORK.md
+agent_spec.md
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
