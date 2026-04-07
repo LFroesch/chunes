@@ -128,11 +128,18 @@ func (m *MPV) sendCommand(args ...interface{}) (*mpvResponse, error) {
 
 func (m *MPV) Play(url string) error {
 	_, err := m.sendCommand("loadfile", url, "replace")
-	if err == nil {
-		m.Playing = true
-		m.Paused = false
+	if err != nil {
+		return err
 	}
-	return err
+	// Session resume uses PlayPaused (pause=yes). mpv keeps pause across loadfile, so a
+	// different track would load but stay silent unless we clear pause explicitly.
+	_, err = m.sendCommand("set_property", "pause", false)
+	if err != nil {
+		return err
+	}
+	m.Playing = true
+	m.Paused = false
+	return nil
 }
 
 // PlayPaused loads a file but starts it paused (no audio blast).

@@ -66,7 +66,8 @@ type sessionResumeMsg struct {
 }
 
 type sessionSeekMsg struct {
-	pos float64
+	pos        float64
+	forTrackID string // session track; skip seek if user started a different track meanwhile
 }
 
 type Model struct {
@@ -444,13 +445,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.crossfading && m.activeMPV().Playing && !m.activeMPV().Paused && time.Since(m.playStarted) > 3*time.Second && m.activeMPV().CachedIdle {
 			dur := m.activeMPV().CachedDuration
 			pos := m.activeMPV().CachedPosition
-			// Only advance if track actually finished (position near end) or duration unknown
-			if dur <= 0 || pos >= dur-2.0 {
+			// Known duration: near end of file
+			if dur > 0 && pos >= dur-2.0 {
 				return m, tea.Batch(tickCmd(), m.playNext())
 			}
-			// mpv went idle mid-track — likely a buffer/network hiccup, try to resume
-			m.status = "Playback interrupted — resuming..."
-			m.activeMPV().Resume()
+			// Duration still unknown (0): do NOT treat idle alone as EOF — that fires while
+			// mpv is still probing/buffering. Only advance after playback has actually started.
+			if dur <= 0 && pos >= 1.0 {
+				return m, tea.Batch(tickCmd(), m.playNext())
+			}
+			// mpv went idle mid-track with known duration — likely a buffer/network hiccup
+			if dur > 0 && pos < dur-2.0 {
+				m.status = "Playback interrupted — resuming..."
+				m.activeMPV().Resume()
+			}
 		}
 		return m, tickCmd()
 
@@ -526,13 +534,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Paused: %s — press Space to play", truncate(t.Title, 30))
 		// Seek to saved position after a short delay to let mpv buffer
 		pos := msg.pos
+		resumeID := t.ID
 		return m, tea.Tick(800*time.Millisecond, func(_ time.Time) tea.Msg {
-			return sessionSeekMsg{pos: pos}
+			return sessionSeekMsg{pos: pos, forTrackID: resumeID}
 		})
 
 	case sessionSeekMsg:
-		// Seek to saved position — stream is already paused, user hits Space to play
-		if m.nowPlaying != nil && msg.pos > 0 {
+		// Stale if user picked another track before this fired — would seek the wrong file
+		if m.resumeCanceled || m.nowPlaying == nil || m.nowPlaying.ID != msg.forTrackID {
+			m.resumePos = 0
+			return m, nil
+		}
+		if msg.pos > 0 {
 			m.activeMPV().SeekAbsolute(msg.pos)
 		}
 		m.resumePos = 0
