@@ -1,6 +1,12 @@
+BIN := chunes
+BUILD_TARGET := .
+INSTALL_DIR ?= $(HOME)/.local/bin
+
 build:
-	go build -o chunes
-cp:
-	cp chunes ~/.local/bin/
-	
-install: build cp
+	go build -o $(BIN) $(BUILD_TARGET)
+
+install: build
+	mkdir -p $(INSTALL_DIR)
+	install -m 0755 $(BIN) $(INSTALL_DIR)/$(BIN)
+
+.PHONY: build install
