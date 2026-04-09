@@ -14,7 +14,7 @@ const vizBandCount = 24
 // Index 0 = empty, 1-8 = increasing fill
 var blockChars = []string{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 
-var vizStyleNames = []string{"bars", "lissajous", "scope", "radial", "spiral", "starfield", "flame", "plasma", "ring", "donut", "moire"}
+var vizStyleNames = []string{"bars", "lissajous", "scope", "radial", "spiral", "starfield", "flame", "plasma", "ring", "donut", "moire", "mirror"}
 
 // vizGradientFor returns a color interpolated across the band range.
 func vizGradientFor(bandIdx, totalBands int) lipgloss.Color {

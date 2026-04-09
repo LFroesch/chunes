@@ -122,6 +122,66 @@ func SearchExact(query string, limit int) ([]player.Track, error) {
 	return tracks, nil
 }
 
+// GetChannelURL returns the channel URL for a given YouTube video ID.
+func GetChannelURL(videoID string) (string, error) {
+	cmd := exec.Command("yt-dlp",
+		fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID),
+		"--print", "%(channel_url)s",
+		"--no-download",
+		"--quiet",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	url := strings.TrimSpace(string(out))
+	if url == "" || url == "NA" || url == "None" {
+		return "", fmt.Errorf("no channel url for %s", videoID)
+	}
+	return url, nil
+}
+
+// GetChannelVideos fetches recent videos from a YouTube channel URL.
+func GetChannelVideos(channelURL string, limit int) ([]player.Track, error) {
+	if limit <= 0 {
+		limit = 15
+	}
+	cmd := exec.Command("yt-dlp",
+		channelURL+"/videos",
+		"--flat-playlist",
+		"--print", "%(id)s\t%(title)s\t%(channel)s\t%(duration)s",
+		"--no-download",
+		"--quiet",
+		"--playlist-end", fmt.Sprintf("%d", limit),
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp channel videos failed: %w", err)
+	}
+
+	var tracks []player.Track
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		id, title, channel, durStr := parts[0], parts[1], parts[2], parts[3]
+		dur, _ := strconv.ParseFloat(durStr, 64)
+		tracks = append(tracks, player.Track{
+			ID:         id,
+			Title:      title,
+			Artist:     cleanArtist(channel),
+			Duration:   formatDuration(dur),
+			Source:     "youtube",
+			ChannelURL: channelURL,
+		})
+	}
+	return tracks, nil
+}
+
 // GetRelated fetches YouTube's "Radio" mix playlist for a video ID,
 // which contains algorithmically related tracks. Returns up to limit tracks,
 // excluding the source video itself.

@@ -58,6 +58,11 @@ type seekDebounceMsg struct {
 
 type seekDoneMsg struct{}
 
+type urlTrackInfoMsg struct {
+	track player.Track
+	err   error
+}
+
 type sessionResumeMsg struct {
 	track player.Track
 	url   string
@@ -108,6 +113,8 @@ type Model struct {
 	vizBandLevels [player.BandCount]float64 // real per-band frequency levels
 	spectrum      *player.Spectrum          // PulseAudio FFT analyzer (nil if unavailable)
 	vizBoost      float64                   // energy multiplier (default 2.5, adjustable with [/])
+	vizAGC        bool                      // auto-gain control
+	vizAGCLevel   float64                   // slow-moving avg energy for AGC
 	vizAutoCycle  bool                      // auto-rotate viz styles
 	vizCycleTick  int                       // ticks since last auto-cycle
 
@@ -170,6 +177,8 @@ func NewModel(cfg *config.Config, mpvA, mpvB *player.MPV) Model {
 		lastfm:      lfm,
 		spectrum:    player.NewSpectrum(), // nil if parec unavailable
 		vizBoost:    2.5,
+		vizAGC:      true,
+		vizAGCLevel: 0.3,
 	}
 
 	// Restore session state (queue, shuffle, repeat)
@@ -349,6 +358,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			vizRMS = m.activeMPV().GetRMS()
 		}
 		updateVizBands(&m.vizBands, m.vizBandLevels, vizRMS, m.vizTick, m.activeMPV().Playing, m.activeMPV().Paused, m.vizBoost)
+
+		// AGC: slowly adjust boost so average band energy stays near 0.35
+		if m.vizAGC && m.activeMPV().Playing && !m.activeMPV().Paused {
+			var sum float64
+			for _, v := range m.vizBands {
+				sum += v
+			}
+			avg := sum / float64(vizBandCount)
+			// Slow exponential smoothing on the running average
+			m.vizAGCLevel = m.vizAGCLevel*0.98 + avg*0.02
+			// Nudge boost toward the target; clamp to manual range
+			const agcTarget = 0.35
+			if m.vizAGCLevel > 0.01 {
+				ratio := agcTarget / m.vizAGCLevel
+				// Move 1% toward the needed boost per tick (slow = stable)
+				m.vizBoost = m.vizBoost*0.99 + (m.vizBoost*ratio)*0.01
+				if m.vizBoost < 1.0 {
+					m.vizBoost = 1.0
+				}
+				if m.vizBoost > 8.0 {
+					m.vizBoost = 8.0
+				}
+			}
+		}
 
 		// Auto-cycle visualizer styles
 		if m.vizAutoCycle && m.activeMPV().Playing && !m.activeMPV().Paused {
@@ -595,6 +628,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return waitForSuggestion(msg.ch, msg.forID)()
 		}
 
+	case urlTrackInfoMsg:
+		m.loadingTrackID = ""
+		if msg.err != nil {
+			m.err = fmt.Sprintf("Link error: %s", msg.err)
+			m.status = ""
+			return m, nil
+		}
+		return m, m.playTrack(msg.track)
+
 	case searchResultsMsg:
 		m.search, _ = m.search.Update(msg)
 		m.status = fmt.Sprintf("Found %d results", len(m.search.results))
@@ -783,8 +825,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.helpScroll = 0
 		}
 		return m, nil
-	case " ", "enter":
-		// Unified: try to play selected track, fallback to toggle pause
+	case " ":
+		// Space always toggles pause/resume
+		if m.activeMPV().Playing {
+			m.activeMPV().TogglePause()
+			if m.activeMPV().Paused {
+				m.status = "Paused"
+			} else {
+				m.status = "Resumed"
+			}
+		}
+		return m, nil
+	case "enter":
+		// Enter plays the selected track in the current view
 		switch m.view {
 		case ViewSearch:
 			if t := m.search.Selected(); t != nil {
@@ -930,12 +983,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "]":
-		m.vizBoost = math.Min(m.vizBoost+0.5, 5.0)
-		m.status = fmt.Sprintf("Viz energy: %.1fx", m.vizBoost)
+		m.vizAGC = false
+		m.vizBoost = math.Min(m.vizBoost+0.5, 8.0)
+		m.status = fmt.Sprintf("Viz energy: %.1fx (AGC off)", m.vizBoost)
 		return m, nil
 	case "[":
+		m.vizAGC = false
 		m.vizBoost = math.Max(m.vizBoost-0.5, 1.0)
-		m.status = fmt.Sprintf("Viz energy: %.1fx", m.vizBoost)
+		m.status = fmt.Sprintf("Viz energy: %.1fx (AGC off)", m.vizBoost)
+		return m, nil
+	case "G":
+		m.vizAGC = !m.vizAGC
+		if m.vizAGC {
+			m.vizAGCLevel = 0.3 // reset tracking
+			m.status = "Viz AGC: on"
+		} else {
+			m.status = fmt.Sprintf("Viz AGC: off (%.1fx)", m.vizBoost)
+		}
 		return m, nil
 	case "R":
 		// Rate highlighted track (or currently playing if nothing selected)
@@ -1489,6 +1553,28 @@ func (m *Model) playTrack(t player.Track) tea.Cmd {
 func (m *Model) playNext() tea.Cmd {
 	t := m.queue.Pop()
 	if t == nil {
+		// Queue empty — auto-fill from suggestions if available
+		if len(m.suggestions.tracks) > 0 {
+			// Add all suggestions to the queue and start playing
+			added := 0
+			for _, s := range m.suggestions.tracks {
+				if !m.queue.Contains(s.ID) {
+					m.queue.Add(s)
+					added++
+				}
+			}
+			if added > 0 {
+				if m.queue.Shuffle() {
+					m.queue.ToggleShuffle() // re-shuffle the new batch
+					m.queue.ToggleShuffle()
+				}
+				m.status = fmt.Sprintf("Queue refilled from suggestions (%d tracks)", added)
+				t = m.queue.Pop()
+				if t != nil {
+					return m.playTrack(*t)
+				}
+			}
+		}
 		m.status = "End of queue"
 		m.activeMPV().Playing = false
 		m.nowPlaying = nil

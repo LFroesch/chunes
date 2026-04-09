@@ -13,7 +13,8 @@ type helpBinding struct {
 
 var helpBindings = []helpBinding{
 	{"/", "Search"},
-	{"Enter/Space", "Play selected / pause"},
+	{"Enter", "Play selected / toggle pause"},
+	{"Space", "Toggle pause (global)"},
 	{"n", "Next track"},
 	{"p", "Previous track"},
 	{"+/-", "Volume up / down"},
@@ -30,6 +31,7 @@ var helpBindings = []helpBinding{
 	{"V", "Random viz style"},
 	{"C", "Auto-cycle viz"},
 	{"[ ]", "Viz energy down / up"},
+	{"G", "Toggle viz AGC (auto-gain)"},
 	{"l", "Load more suggestions"},
 	{"R", "Cycle track rating (★)"},
 	{"S", "Toggle queue shuffle"},

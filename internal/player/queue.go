@@ -6,12 +6,13 @@ import (
 )
 
 type Track struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Artist   string `json:"artist"`
-	Duration string `json:"duration"`
-	URL      string `json:"url,omitempty"`    // stream URL (resolved lazily)
-	Source   string `json:"source,omitempty"` // "youtube" or "soundcloud"
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Artist     string `json:"artist"`
+	Duration   string `json:"duration"`
+	URL        string `json:"url,omitempty"`        // stream URL (resolved lazily)
+	Source     string `json:"source,omitempty"`     // "youtube" or "soundcloud"
+	ChannelURL string `json:"channel_url,omitempty"` // YouTube channel URL for same-channel fetch
 }
 
 type Queue struct {

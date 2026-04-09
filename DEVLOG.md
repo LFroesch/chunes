@@ -1,4 +1,12 @@
 ## DevLog
+### 2026-04-08: UX + visualizer batch
+- **Pause fix**: split space/enter — space now always toggles pause globally (was consumed by view-specific enter handlers, so pause broke on non-NowPlaying pages)
+- **Link support**: pasting a YouTube/SoundCloud URL into search now resolves metadata via yt-dlp and plays directly (no search needed)
+- **Queue end**: when queue empties, auto-fills from suggestions and starts playing; if shuffle is on, re-shuffles the new batch
+- **Viz AGC**: auto-gain control adjusts boost so average energy stays around 35% — eliminates flat bars on quiet music, prevents clipping on loud music. Toggle with `G`; manual `[`/`]` disables AGC
+- **New viz style**: "mirror" (style 12) — spectrum bars grow outward from the vertical center in both directions
+- **Help**: updated bindings to reflect space/enter split and AGC keybind
+
 ### 2026-03-20: Radio engine audit + plan
 Audited full suggestion pipeline (suggestions.go, related.go, lastfm.go, app.go). Found 9 issues: load-more is a no-op (re-runs same sources), no junk filtering, title keyword extraction too crude, no ranking, SoundCloud gets YouTube suggestions, no refresh keybind, duration "?" passes filter, no feedback loop, goroutine leak on song change. Planned Spotify API integration as primary discovery source with YouTube Radio fallback and continuous chaining. Wrote full architecture plan.
 

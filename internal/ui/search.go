@@ -53,6 +53,13 @@ func doSearch(query string, source int) tea.Cmd {
 	}
 }
 
+func resolveURL(url string) tea.Cmd {
+	return func() tea.Msg {
+		track, err := youtube.GetTrackInfo(url)
+		return urlTrackInfoMsg{track: track, err: err}
+	}
+}
+
 func (m searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	if m.focused {
 		switch msg := msg.(type) {
@@ -61,10 +68,14 @@ func (m searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 			case "enter":
 				query := strings.TrimSpace(m.input.Value())
 				if query != "" {
-					m.loading = true
-					m.err = nil
 					m.focused = false
 					m.input.Blur()
+					if youtube.IsURL(query) {
+						m.input.SetValue("")
+						return m, resolveURL(query)
+					}
+					m.loading = true
+					m.err = nil
 					return m, doSearch(query, m.source)
 				}
 			case "esc":

@@ -13,6 +13,7 @@ func nowPlayingHints() []helpBinding {
 		{"v/V", "viz/random"},
 		{"C", "auto-cycle"},
 		{"[]", "energy ↓↑"},
+		{"G", "AGC"},
 		{"Space", "pause"},
 		{"n", "next"},
 		{"+/-", "vol"},
@@ -217,6 +218,8 @@ func renderFullViz(bands [vizBandCount]float64, style int, width, height, tick i
 		return renderVizDonut(bands, width, height, tick)
 	case 10: // moire
 		return renderVizMoire(bands, width, height, tick)
+	case 11: // mirror bars
+		return renderVizMirrorBars(bands, width, height)
 	}
 	return ""
 }
@@ -1068,6 +1071,97 @@ func renderVizMoire(bands [vizBandCount]float64, width, height, tick int) string
 		}
 		return lipgloss.NewStyle().Foreground(vizGradientFor(idx, vizBandCount))
 	})
+}
+
+// ── Style 12: Mirror bars ────────────────────────────────────────────────────
+
+// renderVizMirrorBars renders spectrum bars that grow from the vertical center outward.
+func renderVizMirrorBars(bands [vizBandCount]float64, width, height int) string {
+	barWidth := 1
+	if width >= 120 {
+		barWidth = 3
+	} else if width >= 80 {
+		barWidth = 2
+	}
+	gap := 1
+	bandSlot := barWidth + gap
+	maxBands := (width - 4) / bandSlot
+	if maxBands > vizBandCount {
+		maxBands = vizBandCount
+	}
+	if maxBands < 4 {
+		maxBands = 4
+	}
+
+	vizWidth := maxBands * bandSlot
+	padLeft := (width - vizWidth) / 2
+	prefix := strings.Repeat(" ", padLeft)
+
+	halfH := height / 2
+	totalLevels := halfH * 8
+
+	// Pre-compute bar height (in sub-rows) for each band
+	heights := make([]int, maxBands)
+	for b := 0; b < maxBands; b++ {
+		val := bands[b]
+		if val > 0 {
+			val = math.Log1p(val*4) / math.Log1p(4)
+		}
+		if val > 0.95 {
+			val = 0.95
+		}
+		heights[b] = int(val * float64(totalLevels))
+	}
+
+	renderBar := func(b, rowFromCenter int) string {
+		// rowFromCenter=0 is at the center, increases outward
+		rowBase := rowFromCenter * 8
+		fill := heights[b] - rowBase
+		if fill < 0 {
+			fill = 0
+		}
+		if fill > 8 {
+			fill = 8
+		}
+		return blockChars[fill]
+	}
+
+	var lines []string
+
+	// Top half: row 0 = topmost, center = halfH-1
+	for row := 0; row < halfH; row++ {
+		rowFromCenter := halfH - 1 - row
+		var line strings.Builder
+		line.WriteString(prefix)
+		for b := 0; b < maxBands; b++ {
+			ch := renderBar(b, rowFromCenter)
+			color := vizGradientFor(b, maxBands)
+			styled := lipgloss.NewStyle().Foreground(color).Render(ch)
+			for w := 0; w < barWidth; w++ {
+				line.WriteString(styled)
+			}
+			line.WriteString(strings.Repeat(" ", gap))
+		}
+		lines = append(lines, line.String())
+	}
+
+	// Bottom half: center = 0, grows downward
+	for row := 0; row < height-halfH; row++ {
+		var line strings.Builder
+		line.WriteString(prefix)
+		for b := 0; b < maxBands; b++ {
+			ch := renderBar(b, row)
+			color := vizGradientFor(b, maxBands)
+			styled := lipgloss.NewStyle().Foreground(color).Render(ch)
+			for w := 0; w < barWidth; w++ {
+				line.WriteString(styled)
+			}
+			line.WriteString(strings.Repeat(" ", gap))
+		}
+		lines = append(lines, line.String())
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
