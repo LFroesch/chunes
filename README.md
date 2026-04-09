@@ -31,19 +31,13 @@ Command:
 ```bash
 chunes
 ```
+
 ## Requirements
 
 - Go 1.23+
 - [mpv](https://mpv.io/) — audio playback
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — stream resolution + downloads
 - Last.fm API key (optional — improves suggestions but not required)
-
-## Install & Run
-
-```bash
-go build -o chunes .
-./chunes
-```
 
 ## Config
 
