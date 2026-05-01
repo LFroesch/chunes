@@ -236,8 +236,8 @@ func (m *MPV) SetVolume(vol int) error {
 	if vol < 0 {
 		vol = 0
 	}
-	if vol > 100 {
-		vol = 100
+	if vol > 200 {
+		vol = 200
 	}
 	_, err := m.sendCommand("set_property", "volume", float64(vol))
 	return err

@@ -63,6 +63,12 @@ type urlTrackInfoMsg struct {
 	err   error
 }
 
+type trackMetadataMsg struct {
+	trackID string
+	meta    youtube.Metadata
+	err     error
+}
+
 type sessionResumeMsg struct {
 	track player.Track
 	url   string
@@ -139,6 +145,16 @@ type Model struct {
 
 	// Track ID we're currently loading — used to discard stale streamURLMsg
 	loadingTrackID string
+
+	// Now-playing metadata
+	metaTrackID    string
+	metaLoading    bool
+	metaErr        string
+	metaDesc       string
+	metaArt        string
+	metaChannelURL string
+	// Now Playing tab: false = visualizer fills body, true = metadata panel fills body
+	npShowMeta bool
 
 	// Crossfade state
 	activeIsB      bool // false=A is active, true=B is active
@@ -326,6 +342,13 @@ func getStreamURL(t player.Track) tea.Cmd {
 	}
 }
 
+func fetchTrackMetadata(t player.Track) tea.Cmd {
+	return func() tea.Msg {
+		meta, err := youtube.FetchMetadata(t)
+		return trackMetadataMsg{trackID: t.ID, meta: meta, err: err}
+	}
+}
+
 // inputActive returns true when a text input has focus
 func (m Model) inputActive() bool {
 	return m.search.focused || m.playlists.creating || m.playlists.renaming || m.picker.active
@@ -459,9 +482,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.history.Add(*t)
 					m.history.Save()
 					m.refreshHistory()
+					m.metaTrackID = t.ID
+					m.metaLoading = true
+					m.metaErr = ""
+					m.metaDesc = ""
+					m.metaArt = ""
+					m.metaChannelURL = ""
 				}
 				m.playStarted = time.Now()
 				if cmd := m.maybeFetchSuggestions(); cmd != nil {
+					if m.nowPlaying != nil {
+						return m, tea.Batch(tickCmd(), cmd, fetchTrackMetadata(*m.nowPlaying))
+					}
 					return m, tea.Batch(tickCmd(), cmd)
 				}
 				return m, tickCmd()
@@ -564,13 +596,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.nowPlaying = &t
 		m.playStarted = time.Now()
 		m.activeMPV().SetVolume(m.cfg.Volume)
+		m.metaTrackID = t.ID
+		m.metaLoading = true
+		m.metaErr = ""
+		m.metaDesc = ""
+		m.metaArt = ""
+		m.metaChannelURL = ""
 		m.status = fmt.Sprintf("Paused: %s — press Space to play", truncate(t.Title, 30))
 		// Seek to saved position after a short delay to let mpv buffer
 		pos := msg.pos
 		resumeID := t.ID
-		return m, tea.Tick(800*time.Millisecond, func(_ time.Time) tea.Msg {
+		return m, tea.Batch(fetchTrackMetadata(t), tea.Tick(800*time.Millisecond, func(_ time.Time) tea.Msg {
 			return sessionSeekMsg{pos: pos, forTrackID: resumeID}
-		})
+		}))
 
 	case sessionSeekMsg:
 		// Stale if user picked another track before this fired — would seek the wrong file
@@ -611,8 +649,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history.Add(msg.track)
 		m.history.Save()
 		m.refreshHistory()
+		m.metaTrackID = t.ID
+		m.metaLoading = true
+		m.metaErr = ""
+		m.metaDesc = ""
+		m.metaArt = ""
+		m.metaChannelURL = ""
 		// Fetch new suggestions for the now-playing track
-		return m, m.maybeFetchSuggestions()
+		return m, tea.Batch(m.maybeFetchSuggestions(), fetchTrackMetadata(t))
+
+	case trackMetadataMsg:
+		if m.nowPlaying == nil || msg.trackID != m.nowPlaying.ID {
+			return m, nil
+		}
+		m.metaLoading = false
+		if msg.err != nil {
+			m.metaErr = msg.err.Error()
+			return m, nil
+		}
+		m.metaErr = ""
+		m.metaDesc = msg.meta.Description
+		m.metaArt = msg.meta.ArtASCII
+		m.metaChannelURL = msg.meta.ChannelURL
+		return m, nil
 
 	case suggestionTrackMsg:
 		if msg.forID != m.suggestions.forTrackID {
@@ -647,6 +706,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.progress.Done || msg.progress.Error != nil {
 			if msg.progress.Done {
 				m.status = fmt.Sprintf("Downloaded: %s", truncate(msg.progress.Track.Title, 30))
+				m.err = ""
+			}
+			if msg.progress.Error != nil {
+				m.err = fmt.Sprintf("Download error: %s", msg.progress.Error)
+				m.status = ""
 			}
 			return m, nil
 		}
@@ -786,7 +850,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Help overlay navigation (fully modal)
 	if m.showHelp {
-		totalHelpLines := len(helpBindings) + 3 // title + divider + blank
+		totalHelpLines := helpTotalLines()
 		maxScroll := totalHelpLines - m.contentHeight()
 		if maxScroll < 0 {
 			maxScroll = 0
@@ -888,7 +952,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		return m, m.playNext()
 	case "p":
-		return m, m.playPrev()
+		return m, m.replayTrack()
 	case "0":
 		if m.nowPlaying != nil && m.activeMPV().Playing {
 			m.activeMPV().SeekAbsolute(0)
@@ -896,7 +960,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "+", "=":
-		m.cfg.Volume = min(m.cfg.Volume+5, 100)
+		m.cfg.Volume = min(m.cfg.Volume+5, 200)
 		m.activeMPV().SetVolume(m.cfg.Volume)
 		m.status = fmt.Sprintf("Volume: %d%%", m.cfg.Volume)
 		return m, nil
@@ -991,6 +1055,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vizAGC = false
 		m.vizBoost = math.Max(m.vizBoost-0.5, 1.0)
 		m.status = fmt.Sprintf("Viz energy: %.1fx (AGC off)", m.vizBoost)
+		return m, nil
+	case "m":
+		if m.view == ViewNowPlaying {
+			m.npShowMeta = !m.npShowMeta
+			if m.npShowMeta {
+				m.status = "Now Playing: metadata panel"
+			} else {
+				m.status = "Now Playing: visualizer"
+			}
+			return m, nil
+		}
 		return m, nil
 	case "G":
 		m.vizAGC = !m.vizAGC
@@ -1523,7 +1598,10 @@ func (m *Model) resetCrossfade() {
 func (m *Model) localFilePath(t player.Track) string {
 	for _, item := range m.downloads.items {
 		if item.track.ID == t.ID && item.done {
-			path := download.ResolvedPath(t, m.downloads.outputDir, m.downloads.format)
+			path := item.path
+			if path == "" {
+				path = download.FindDownloadedPath(t, m.downloads.outputDir, m.downloads.format)
+			}
 			if _, err := os.Stat(path); err == nil {
 				return path
 			}
@@ -1535,10 +1613,16 @@ func (m *Model) localFilePath(t player.Track) string {
 func (m *Model) playTrack(t player.Track) tea.Cmd {
 	m.resetCrossfade()
 	m.err = ""
-	m.resumePos = 0         // cancel any pending session resume
-	m.resumeCanceled = true  // discard in-flight sessionResumeMsg
-	m.loadingTrackID = t.ID // tag so we can discard stale streamURLMsg
+	m.resumePos = 0            // cancel any pending session resume
+	m.resumeCanceled = true    // discard in-flight sessionResumeMsg
+	m.loadingTrackID = t.ID    // tag so we can discard stale streamURLMsg
 	m.playStarted = time.Now() // prevent auto-advance from double-popping while URL resolves
+	m.metaTrackID = t.ID
+	m.metaLoading = true
+	m.metaErr = ""
+	m.metaDesc = ""
+	m.metaArt = ""
+	m.metaChannelURL = ""
 	// Offline mode: play local file if downloaded
 	if path := m.localFilePath(t); path != "" {
 		m.status = fmt.Sprintf("Playing (local): %s", truncate(t.Title, 30))
@@ -1568,7 +1652,7 @@ func (m *Model) playNext() tea.Cmd {
 					m.queue.ToggleShuffle() // re-shuffle the new batch
 					m.queue.ToggleShuffle()
 				}
-				m.status = fmt.Sprintf("Queue refilled from suggestions (%d tracks)", added)
+				m.status = fmt.Sprintf("Radio refilled queue (%d tracks)", added)
 				t = m.queue.Pop()
 				if t != nil {
 					return m.playTrack(*t)
@@ -1587,6 +1671,14 @@ func (m *Model) playPrev() tea.Cmd {
 	// No history stack — prev is not supported with consume queue
 	m.status = "No previous track"
 	return nil
+}
+
+func (m *Model) replayTrack() tea.Cmd {
+	if m.nowPlaying == nil {
+		return nil
+	}
+	m.status = "Replay current track"
+	return m.playTrack(*m.nowPlaying)
 }
 
 func (m *Model) startDownload(t player.Track) tea.Cmd {
@@ -1623,7 +1715,7 @@ func (m Model) handleScrollWheel(button tea.MouseButton) (tea.Model, tea.Cmd) {
 
 	// Help overlay
 	if m.showHelp {
-		totalHelpLines := len(helpBindings) + 3
+		totalHelpLines := helpTotalLines()
 		maxScroll := totalHelpLines - m.contentHeight()
 		if maxScroll < 0 {
 			maxScroll = 0

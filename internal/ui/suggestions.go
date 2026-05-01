@@ -63,9 +63,10 @@ func startSuggestionFetch(client *lastfm.Client, t player.Track, existingTracks 
 		if isMix {
 			maxDur = 10800
 		}
+		fetchBudget := maxResults + len(existingTracks) + 10
 
 		isYT := t.Source != "soundcloud" && !strings.HasPrefix(t.ID, "http")
-		parsedArtist, _ := youtube.ParseArtistTitle(t.Title, t.Artist)
+		parsedArtist, parsedTitle := youtube.ParseArtistTitle(t.Title, t.Artist)
 
 		emit := func(r player.Track) bool {
 			if seenID[r.ID] || seenKey[dedupKey("", r.Title)] {
@@ -94,7 +95,7 @@ func startSuggestionFetch(client *lastfm.Client, t player.Track, existingTracks 
 				channelURL, _ = youtube.GetChannelURL(t.ID)
 			}
 			if channelURL != "" {
-				results, err := youtube.GetChannelVideos(channelURL, 15)
+				results, err := youtube.GetChannelVideos(channelURL, fetchBudget)
 				if err == nil {
 					for _, r := range results {
 						if count >= maxResults {
@@ -110,7 +111,7 @@ func startSuggestionFetch(client *lastfm.Client, t player.Track, existingTracks 
 
 		// ── Source 1: YouTube Radio ──────────────────────────────────────
 		if isYT && count < maxResults {
-			related, err := youtube.GetRelated(t.ID, 30)
+			related, err := youtube.GetRelated(t.ID, fetchBudget)
 			if err == nil {
 				for _, r := range related {
 					if count >= maxResults {
@@ -127,7 +128,7 @@ func startSuggestionFetch(client *lastfm.Client, t player.Track, existingTracks 
 		// Good supplement for mainstream/indie/rock. Skipped for mixes since
 		// Last.fm won't have data for "60 Minute Breakcore Mix Vol. 3".
 		if client != nil && !isMix && count < maxResults {
-			similar, _ := client.GetSimilarTracks(parsedArtist, parsedTitle, 20)
+			similar, _ := client.GetSimilarTracks(parsedArtist, parsedTitle, fetchBudget)
 			for _, s := range similar {
 				if count >= maxResults {
 					break
@@ -141,6 +142,31 @@ func startSuggestionFetch(client *lastfm.Client, t player.Track, existingTracks 
 						count++
 						break
 					}
+				}
+			}
+		}
+
+		if isYT && count < maxResults && parsedArtist != "" && parsedTitle != "" {
+			queries := []string{
+				parsedArtist + " " + parsedTitle,
+				parsedArtist + " " + parsedTitle + " topic",
+				parsedArtist + " " + parsedTitle + " official audio",
+			}
+			for _, q := range queries {
+				results, err := youtube.SearchExact(q, fetchBudget)
+				if err != nil {
+					continue
+				}
+				for _, r := range results {
+					if count >= maxResults {
+						break
+					}
+					if emit(r) {
+						count++
+					}
+				}
+				if count >= maxResults {
+					break
 				}
 			}
 		}
@@ -301,7 +327,7 @@ func dedupKey(_, title string) string {
 		"(music video)", "(topic)", "(vevo)",
 		"[official video]", "[official music video]", "[official audio]",
 		"[lyric video]", "[lyrics]", "[lyric]", "[visualizer]", "[audio]",
-		"[hd]", "[hq]", "[4k]", "[official]", "[music video]", "24/7" , "24 / 7",
+		"[hd]", "[hq]", "[4k]", "[official]", "[music video]", "24/7", "24 / 7",
 		"- official video", "- official music video", "- official audio",
 		"| official video", "| official music video",
 	}

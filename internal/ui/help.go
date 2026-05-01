@@ -11,36 +11,63 @@ type helpBinding struct {
 	desc string
 }
 
-var helpBindings = []helpBinding{
-	{"/", "Search"},
-	{"Enter", "Play selected / toggle pause"},
-	{"Space", "Toggle pause (global)"},
-	{"n", "Next track"},
-	{"p", "Previous track"},
-	{"+/-", "Volume up / down"},
-	{"a", "Add to queue"},
-	{"s", "Save to playlist"},
-	{"d", "Download track"},
-	{"A", "Queue all (playlists)"},
-	{"←/→", "Seek ±5 seconds"},
-	{"</>", "Seek ±30 seconds"},
-	{"0", "Restart track"},
-	{"1-7", "Switch views"},
-	{"j/k", "Navigate up / down"},
-	{"v", "Next viz style"},
-	{"V", "Random viz style"},
-	{"C", "Auto-cycle viz"},
-	{"[ ]", "Viz energy down / up"},
-	{"G", "Toggle viz AGC (auto-gain)"},
-	{"l", "Load more suggestions"},
-	{"R", "Cycle track rating (★)"},
-	{"S", "Toggle queue shuffle"},
-	{"r", "Cycle repeat mode"},
-	{"Z", "Shuffle playlist tracks"},
-	{"e", "Rename playlist"},
-	{"Esc / q", "Back / unfocus"},
-	{"ctrl+c", "Quit"},
-	{"?", "Toggle this help"},
+type helpSection struct {
+	name     string
+	bindings []helpBinding
+}
+
+var helpSections = []helpSection{
+	{"Playback", []helpBinding{
+		{"Space", "Toggle pause (global)"},
+		{"Enter", "Play selected / toggle pause"},
+		{"n", "Next track"},
+		{"p", "Replay current track"},
+		{"0", "Restart track"},
+		{"←/→", "Seek ±5 seconds"},
+		{"</>", "Seek ±30 seconds"},
+		{"+/-", "Volume up / down (to 200%)"},
+		{"S", "Toggle queue shuffle"},
+		{"r", "Cycle repeat mode"},
+	}},
+	{"Navigation", []helpBinding{
+		{"1-7", "Switch views"},
+		{"/", "Search"},
+		{"j/k", "Navigate up / down"},
+		{"Esc / q", "Back / unfocus"},
+		{"ctrl+c", "Quit"},
+	}},
+	{"Tracks", []helpBinding{
+		{"a", "Add to queue"},
+		{"d", "Download track"},
+		{"s", "Save to playlist"},
+		{"R", "Cycle track rating (★)"},
+		{"l", "Load more suggestions"},
+	}},
+	{"Playlists", []helpBinding{
+		{"A", "Queue all"},
+		{"e", "Rename playlist"},
+		{"Z", "Shuffle playlist tracks"},
+	}},
+	{"Visualizer (Now Playing)", []helpBinding{
+		{"m", "Toggle metadata / visualizer panel"},
+		{"v", "Next viz style"},
+		{"V", "Random viz style"},
+		{"C", "Auto-cycle viz styles"},
+		{"[ ]", "Viz energy down / up"},
+		{"G", "Toggle viz AGC (auto-gain)"},
+	}},
+	{"Help", []helpBinding{
+		{"?", "Toggle this help"},
+	}},
+}
+
+// helpTotalLines returns the rendered line count of the help overlay.
+func helpTotalLines() int {
+	n := 2 // title + divider
+	for _, sec := range helpSections {
+		n += 2 + len(sec.bindings) // blank + section header + bindings
+	}
+	return n
 }
 
 func renderHelp(width, scroll, height int) string {
@@ -52,9 +79,12 @@ func renderHelp(width, scroll, height int) string {
 	var allLines []string
 	allLines = append(allLines, "  "+title)
 	allLines = append(allLines, "  "+dividerStyle.Render(strings.Repeat("─", min(40, width-4))))
-	allLines = append(allLines, "")
-	for _, h := range helpBindings {
-		allLines = append(allLines, "  "+helpKeyStyle.Render(h.key)+helpDescStyle.Render(h.desc))
+	for _, sec := range helpSections {
+		allLines = append(allLines, "")
+		allLines = append(allLines, "  "+headerStyle.Render(sec.name))
+		for _, h := range sec.bindings {
+			allLines = append(allLines, "  "+helpKeyStyle.Render(h.key)+helpDescStyle.Render(h.desc))
+		}
 	}
 
 	total := len(allLines)
@@ -224,7 +254,7 @@ func playerHints() []helpBinding {
 	return []helpBinding{
 		{"Space", "pause"},
 		{"n", "next"},
-		{"p", "prev"},
+		{"p", "replay"},
 		{"+/-", "vol"},
 		{"←/→", "seek"},
 		{"R", "rate"},

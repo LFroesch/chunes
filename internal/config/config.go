@@ -19,7 +19,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Volume:        70,
 		DownloadDir:   filepath.Join(home, "Music", "chunes"),
-		AudioFormat:   "mp3",
+		AudioFormat:   "source",
 		CrossfadeSecs: 8,
 	}
 }

@@ -13,6 +13,7 @@ type downloadItem struct {
 	percent float64
 	done    bool
 	err     error
+	path    string
 }
 
 type downloadModel struct {
@@ -37,6 +38,7 @@ func newDownloadModel(outputDir, format string) downloadModel {
 			track:   e.Track,
 			percent: 100,
 			done:    true,
+			path:    e.Path,
 		})
 	}
 	return m
@@ -58,9 +60,15 @@ func (m *downloadModel) updateProgress(p download.Progress) {
 			m.items[i].percent = p.Percent
 			m.items[i].done = p.Done
 			m.items[i].err = p.Error
+			if p.Path != "" {
+				m.items[i].path = p.Path
+			}
 			if p.Done {
-				// Persist to library
-				path := download.ResolvedPath(p.Track, m.outputDir, m.format)
+				path := m.items[i].path
+				if path == "" {
+					path = download.FindDownloadedPath(p.Track, m.outputDir, m.format)
+					m.items[i].path = path
+				}
 				download.AddToLibrary(p.Track, path)
 			}
 			return

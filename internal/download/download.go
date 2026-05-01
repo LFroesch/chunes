@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/lucas/chunes/internal/config"
 	"github.com/lucas/chunes/internal/player"
@@ -20,6 +21,7 @@ type Progress struct {
 	Percent float64
 	Done    bool
 	Error   error
+	Path    string
 }
 
 // LibraryEntry is a completed download stored on disk
@@ -70,14 +72,65 @@ func AddToLibrary(track player.Track, path string) error {
 	return SaveLibrary(entries)
 }
 
-// ResolvedPath returns the actual file path for a downloaded track
-func ResolvedPath(track player.Track, outputDir, format string) string {
-	ext := format
-	if ext == "" {
-		ext = "mp3"
+func normalizeFormat(format string) string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "source", "best", "original", "keep":
+		return "source"
+	default:
+		return strings.ToLower(strings.TrimSpace(format))
 	}
-	filename := sanitizeFilename(track.Title+" - "+track.Artist) + "." + ext
+}
+
+func outputBase(track player.Track, outputDir string) string {
+	filename := sanitizeFilename(track.Title + " - " + track.Artist)
 	return filepath.Join(outputDir, filename)
+}
+
+// ResolvedPath returns the expected file path for extension-stable downloads.
+func ResolvedPath(track player.Track, outputDir, format string) string {
+	ext := normalizeFormat(format)
+	if ext == "source" {
+		return ""
+	}
+	return outputBase(track, outputDir) + "." + ext
+}
+
+// FindDownloadedPath returns the stored or discovered file path for a downloaded track.
+func FindDownloadedPath(track player.Track, outputDir, format string) string {
+	entries, err := LoadLibrary()
+	if err == nil {
+		for _, e := range entries {
+			if e.Track.ID == track.ID && e.Path != "" {
+				if _, statErr := os.Stat(e.Path); statErr == nil {
+					return e.Path
+				}
+			}
+		}
+	}
+
+	if path := ResolvedPath(track, outputDir, format); path != "" {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	matches, err := filepath.Glob(outputBase(track, outputDir) + ".*")
+	if err != nil {
+		return ""
+	}
+	var newest string
+	var newestModTime int64
+	for _, match := range matches {
+		info, statErr := os.Stat(match)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		if newest == "" || info.ModTime().UnixNano() > newestModTime {
+			newest = match
+			newestModTime = info.ModTime().UnixNano()
+		}
+	}
+	return newest
 }
 
 func RemoveFromLibrary(id string) error {
@@ -95,7 +148,10 @@ func RemoveFromLibrary(id string) error {
 }
 
 func DeleteFile(track player.Track, outputDir, format string) error {
-	path := ResolvedPath(track, outputDir, format)
+	path := FindDownloadedPath(track, outputDir, format)
+	if path == "" {
+		return nil
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
@@ -105,12 +161,22 @@ func DeleteFile(track player.Track, outputDir, format string) error {
 func Download(track player.Track, outputDir, format string, progressCh chan<- Progress) {
 	defer close(progressCh)
 
-	ext := format
-	if ext == "" {
-		ext = "mp3"
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		progressCh <- Progress{Track: track, Error: fmt.Errorf("create download dir: %w", err)}
+		return
 	}
-	filename := sanitizeFilename(track.Title + " - " + track.Artist)
-	output := filepath.Join(outputDir, filename+".%(ext)s")
+
+	ext := normalizeFormat(format)
+	if ext != "source" {
+		if _, err := exec.LookPath("ffmpeg"); err != nil {
+			progressCh <- Progress{
+				Track: track,
+				Error: fmt.Errorf("ffmpeg not found in PATH; transcoded downloads require ffmpeg"),
+			}
+			return
+		}
+	}
+	output := outputBase(track, outputDir) + ".%(ext)s"
 
 	url := track.ID
 	if !strings.HasPrefix(url, "http") {
@@ -118,13 +184,15 @@ func Download(track player.Track, outputDir, format string, progressCh chan<- Pr
 	}
 	args := []string{
 		"-f", "bestaudio",
-		"--extract-audio",
-		"--audio-format", ext,
-		"--audio-quality", "0",
 		"-o", output,
 		"--newline",
 		"--no-playlist",
 		url,
+	}
+	if ext != "source" {
+		args = append(args[:2],
+			append([]string{"--extract-audio", "--audio-format", ext, "--audio-quality", "0"}, args[2:]...)...,
+		)
 	}
 
 	cmd := exec.Command("yt-dlp", args...)
@@ -144,31 +212,40 @@ func Download(track player.Track, outputDir, format string, progressCh chan<- Pr
 		return
 	}
 
-	// Parse progress from stdout
 	pctRe := regexp.MustCompile(`(\d+\.?\d*)%`)
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if matches := pctRe.FindStringSubmatch(line); len(matches) > 1 {
-			if pct, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				progressCh <- Progress{Track: track, Percent: pct}
+	var errOutput strings.Builder
+	var wg sync.WaitGroup
+	parseStream := func(scanner *bufio.Scanner, captureErrors bool) {
+		defer wg.Done()
+		for scanner.Scan() {
+			line := scanner.Text()
+			if matches := pctRe.FindStringSubmatch(line); len(matches) > 1 {
+				if pct, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					progressCh <- Progress{Track: track, Percent: pct}
+				}
+			}
+			if captureErrors {
+				if errOutput.Len() > 0 {
+					errOutput.WriteString(" | ")
+				}
+				errOutput.WriteString(strings.TrimSpace(line))
 			}
 		}
 	}
 
-	// Drain stderr for error info
-	var errOutput strings.Builder
-	errScanner := bufio.NewScanner(stderr)
-	for errScanner.Scan() {
-		errOutput.WriteString(errScanner.Text())
-	}
+	wg.Add(2)
+	go parseStream(bufio.NewScanner(stdout), false)
+	go parseStream(bufio.NewScanner(stderr), true)
 
 	if err := cmd.Wait(); err != nil {
+		wg.Wait()
 		progressCh <- Progress{Track: track, Error: fmt.Errorf("%w: %s", err, errOutput.String())}
 		return
 	}
+	wg.Wait()
 
-	progressCh <- Progress{Track: track, Percent: 100, Done: true}
+	path := FindDownloadedPath(track, outputDir, ext)
+	progressCh <- Progress{Track: track, Percent: 100, Done: true, Path: path}
 }
 
 func sanitizeFilename(name string) string {

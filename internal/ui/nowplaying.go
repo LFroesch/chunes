@@ -10,12 +10,13 @@ import (
 
 func nowPlayingHints() []helpBinding {
 	return []helpBinding{
+		{"m", "meta/viz"},
 		{"v/V", "viz/random"},
 		{"C", "auto-cycle"},
 		{"[]", "energy ↓↑"},
-		{"G", "AGC"},
 		{"Space", "pause"},
 		{"n", "next"},
+		{"p", "replay"},
 		{"+/-", "vol"},
 		{"←/→", "seek"},
 		{"R", "rate"},
@@ -38,7 +39,7 @@ func (m Model) viewNowPlaying(width, height int) string {
 		return strings.Join(lines[:height], "\n")
 	}
 
-	// Track info section (3 lines: blank, title/artist, progress)
+	// Track info section
 	icon := lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("▶")
 	if m.activeMPV().Paused {
 		icon = lipgloss.NewStyle().Foreground(warnColor).Bold(true).Render("⏸")
@@ -68,19 +69,23 @@ func (m Model) viewNowPlaying(width, height int) string {
 	lines = append(lines, lipgloss.PlaceHorizontal(width, lipgloss.Center, timeLine))
 	lines = append(lines, "")
 
-	// Visualizer fills the rest
-	vizHeight := height - len(lines)
-	if vizHeight < 2 {
-		vizHeight = 2
+	bodyHeight := height - len(lines)
+	if bodyHeight < 2 {
+		bodyHeight = 2
 	}
 
-	vizContent := renderFullViz(m.vizBands, m.vizStyle, width, vizHeight, m.vizTick)
-	vizLines := strings.Split(vizContent, "\n")
-	for i := 0; i < vizHeight; i++ {
-		if i < len(vizLines) {
-			lines = append(lines, vizLines[i])
-		} else {
-			lines = append(lines, "")
+	if m.npShowMeta {
+		infoBlock := m.renderNowPlayingInfo(width, bodyHeight)
+		lines = append(lines, strings.Split(infoBlock, "\n")...)
+	} else {
+		vizContent := renderFullViz(m.vizBands, m.vizStyle, width, bodyHeight, m.vizTick)
+		vizLines := strings.Split(vizContent, "\n")
+		for i := 0; i < bodyHeight; i++ {
+			if i < len(vizLines) {
+				lines = append(lines, vizLines[i])
+			} else {
+				lines = append(lines, "")
+			}
 		}
 	}
 
@@ -90,13 +95,88 @@ func (m Model) viewNowPlaying(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) renderNowPlayingInfo(width, height int) string {
+	if height < 4 {
+		return ""
+	}
+
+	artWidth := 32
+	if width < 90 {
+		artWidth = 24
+	}
+	if artWidth > width/2 {
+		artWidth = width / 2
+	}
+	if artWidth < 16 {
+		artWidth = 16
+	}
+	textWidth := width - artWidth - 4
+	if textWidth < 20 {
+		textWidth = 20
+	}
+
+	art := m.metaArt
+	if art == "" {
+		if m.metaLoading {
+			art = "loading artwork..."
+		} else {
+			art = "art unavailable"
+		}
+	}
+
+	artLines := wrapText(art, artWidth, height)
+	if strings.Contains(art, "\n") {
+		artLines = strings.Split(art, "\n")
+		if len(artLines) > height {
+			artLines = artLines[:height]
+		}
+	}
+
+	desc := strings.TrimSpace(m.metaDesc)
+	if desc == "" {
+		if m.metaLoading {
+			desc = "Loading track description..."
+		} else if m.metaErr != "" {
+			desc = "Track metadata unavailable."
+		} else {
+			desc = "No description available."
+		}
+	}
+
+	textLines := []string{
+		headerStyle.Render("  Track Context"),
+		dimStyle("  Source: YouTube-first radio/browser"),
+	}
+	if m.metaChannelURL != "" {
+		textLines = append(textLines, dimStyle("  Channel: "+truncate(m.metaChannelURL, textWidth-2)))
+	}
+	textLines = append(textLines, "")
+	for _, line := range wrapText(desc, textWidth, height-len(textLines)) {
+		textLines = append(textLines, "  "+line)
+	}
+
+	var out []string
+	for i := 0; i < height; i++ {
+		left := ""
+		if i < len(artLines) {
+			left = artLines[i]
+		}
+		right := ""
+		if i < len(textLines) {
+			right = textLines[i]
+		}
+		out = append(out, fmt.Sprintf("  %-*s  %s", artWidth, truncate(left, artWidth), truncate(right, textWidth)))
+	}
+	return strings.Join(out, "\n")
+}
+
 // ── Braille canvas ──────────────────────────────────────────────────────────
 
 // brailleCanvas is a 2D pixel grid that renders to braille characters.
 // Each cell is 2 wide × 4 tall in braille sub-pixels.
 type brailleCanvas struct {
-	w, h   int       // pixel dimensions
-	pixels [][]bool  // [y][x]
+	w, h   int      // pixel dimensions
+	pixels [][]bool // [y][x]
 }
 
 func newBrailleCanvas(charW, charH int) *brailleCanvas {
@@ -927,7 +1007,7 @@ func renderVizDonut(bands [vizBandCount]float64, width, height, tick int) string
 
 	// Torus parameters — sized to fill the canvas
 	R := float64(min(canvas.w, canvas.h)) * 0.38 * (0.85 + totalEnergy*0.2) // major radius
-	r := R * (0.4 + bassEnergy*0.15)                                         // minor radius (tube)
+	r := R * (0.4 + bassEnergy*0.15)                                        // minor radius (tube)
 
 	centerX := float64(canvas.w) / 2
 	centerY := float64(canvas.h) / 2

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -12,13 +14,49 @@ import (
 	"github.com/lucas/chunes/internal/ui"
 )
 
+type dep struct {
+	name, role string
+	required   bool
+}
+
 func main() {
-	// Check dependencies
-	for _, dep := range []string{"mpv", "yt-dlp"} {
-		if _, err := exec.LookPath(dep); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s not found in PATH. Please install it.\n", dep)
-			os.Exit(1)
+	deps := []dep{
+		{"mpv", "audio playback", true},
+		{"yt-dlp", "YouTube/SoundCloud stream resolution", true},
+		{"parec", "spectrum visualizer (PulseAudio)", false},
+	}
+	var missing []dep
+	for _, d := range deps {
+		if _, err := exec.LookPath(d.name); err != nil {
+			missing = append(missing, d)
 		}
+	}
+	hasRequired := false
+	for _, d := range missing {
+		if d.required {
+			hasRequired = true
+			break
+		}
+	}
+	if hasRequired {
+		fmt.Fprintln(os.Stderr, "chunes: missing required dependencies")
+		fmt.Fprintln(os.Stderr)
+		for _, d := range missing {
+			tag := "required"
+			if !d.required {
+				tag = "optional"
+			}
+			fmt.Fprintf(os.Stderr, "  • %-8s (%s) — %s\n", d.name, tag, d.role)
+		}
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Install:")
+		fmt.Fprintln(os.Stderr, "  "+installHint(missing))
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Or run the bundled installer: ./install.sh")
+		os.Exit(1)
+	}
+	for _, d := range missing {
+		fmt.Fprintf(os.Stderr, "note: %s not found — %s will be disabled.\n", d.name, d.role)
 	}
 
 	// Load config
@@ -58,4 +96,25 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+func installHint(missing []dep) string {
+	names := make([]string, 0, len(missing))
+	for _, d := range missing {
+		names = append(names, d.name)
+	}
+	pkgs := strings.Join(names, " ")
+	if runtime.GOOS == "darwin" {
+		return "brew install " + pkgs
+	}
+	if _, err := exec.LookPath("apt"); err == nil {
+		return "sudo apt install " + pkgs
+	}
+	if _, err := exec.LookPath("dnf"); err == nil {
+		return "sudo dnf install " + pkgs
+	}
+	if _, err := exec.LookPath("pacman"); err == nil {
+		return "sudo pacman -S " + pkgs
+	}
+	return "install with your package manager: " + pkgs
 }
