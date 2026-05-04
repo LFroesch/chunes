@@ -67,7 +67,7 @@ Last.fm key is optional — suggestions work without it using YouTube Radio. Add
 | # | Tab | What it does |
 |---|-----|-------------|
 | 1 | Search | YouTube/SoundCloud search (Tab to switch source) |
-| 2 | Playing | Full-screen visualizer + track info, description, and ASCII artwork |
+| 2 | Playing | Full-screen visualizer + track info, description, and cached color thumbnail art |
 | 3 | Queue | Up next — shuffle, repeat, reorder |
 | 4 | Playlists | Local JSON playlists — create, rename, reorder |
 | 5 | History | Play history with ratings, play counts, and sorting |
@@ -76,16 +76,16 @@ Last.fm key is optional — suggestions work without it using YouTube Radio. Add
 
 ## Visualizers
 
-11 styles, cycle with `v` or randomize with `V`:
+12 styles, cycle with `v` or randomize with `V`:
 
-bars, lissajous, scope, radial, spiral, starfield, flame, plasma, ring, donut, moire
+bars, lissajous, scope, radial, spiral, starfield, flame, plasma, ring, donut, moire, mirror
 
-Auto-cycle mode with `C`. Adjust energy boost with `[` / `]`.
+Auto-cycle mode with `C`. Visualizer auto-gain stays on by default so energy stays readable without manual tuning.
 
 ## Features
 
 - **Crossfade** — smooth transitions between tracks (configurable duration)
-- **Track context** — cached descriptions and ASCII-rendered artwork on the Playing tab
+- **Track context** — cached descriptions and color-rendered thumbnail art on the Playing tab
 - **Shuffle & repeat** — Fisher-Yates shuffle (every track once per cycle), repeat one/all/off
 - **Ratings** — rate tracks 0-5 stars, persisted across sessions
 - **Mouse support** — click to select, scroll to navigate, click progress bar to seek
@@ -95,7 +95,7 @@ Auto-cycle mode with `C`. Adjust energy boost with `[` / `]`.
 
 ## Discovery
 
-Suggestions are YouTube-first. The app prefers the seeded YouTube Radio mix for the current track, expands deeper when you load more, uses same-channel pulls for longer mix/DJ uploads, and only leans on Last.fm as a supplement.
+Suggestions are YouTube-first. The app prefers the seeded YouTube Radio mix for the current track, expands deeper when you load more, uses same-channel pulls for longer mix/DJ uploads, and only leans on Last.fm as a supplement. When the queue runs dry, radio continuation now only seeds a small next batch instead of dumping every suggestion into Up Next.
 
 ## Key Bindings
 

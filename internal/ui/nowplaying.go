@@ -11,9 +11,7 @@ import (
 func nowPlayingHints() []helpBinding {
 	return []helpBinding{
 		{"m", "meta/viz"},
-		{"v/V", "viz/random"},
-		{"C", "auto-cycle"},
-		{"[]", "energy ↓↑"},
+		{"v/V/C", "viz/random/cycle"},
 		{"Space", "pause"},
 		{"n", "next"},
 		{"p", "replay"},
@@ -100,74 +98,134 @@ func (m Model) renderNowPlayingInfo(width, height int) string {
 		return ""
 	}
 
-	artWidth := 32
-	if width < 90 {
-		artWidth = 24
-	}
-	if artWidth > width/2 {
-		artWidth = width / 2
-	}
-	if artWidth < 16 {
-		artWidth = 16
-	}
-	textWidth := width - artWidth - 4
-	if textWidth < 20 {
-		textWidth = 20
-	}
-
-	art := m.metaArt
-	if art == "" {
-		if m.metaLoading {
-			art = "loading artwork..."
-		} else {
-			art = "art unavailable"
-		}
-	}
-
-	artLines := wrapText(art, artWidth, height)
-	if strings.Contains(art, "\n") {
-		artLines = strings.Split(art, "\n")
-		if len(artLines) > height {
-			artLines = artLines[:height]
-		}
-	}
-
-	desc := strings.TrimSpace(m.metaDesc)
-	if desc == "" {
-		if m.metaLoading {
-			desc = "Loading track description..."
-		} else if m.metaErr != "" {
-			desc = "Track metadata unavailable."
-		} else {
-			desc = "No description available."
-		}
-	}
-
-	textLines := []string{
-		headerStyle.Render("  Track Context"),
-		dimStyle("  Source: YouTube-first radio/browser"),
-	}
-	if m.metaChannelURL != "" {
-		textLines = append(textLines, dimStyle("  Channel: "+truncate(m.metaChannelURL, textWidth-2)))
-	}
-	textLines = append(textLines, "")
-	for _, line := range wrapText(desc, textWidth, height-len(textLines)) {
-		textLines = append(textLines, "  "+line)
-	}
+	artWidth := min(30, max(width/3, 18))
+	artLines := artworkLines(m.metaArt, artWidth)
+	desc := m.nowPlayingDescription()
+	headerLines, infoLines := m.nowPlayingTextLines(width, desc)
 
 	var out []string
-	for i := 0; i < height; i++ {
+	for _, line := range headerLines {
+		if len(out) >= height {
+			break
+		}
+		out = append(out, "  "+lipgloss.NewStyle().MaxWidth(max(width-4, 1)).Render(line))
+	}
+	if len(out) < height {
+		out = append(out, "")
+	}
+	remaining := height - len(out)
+	if remaining <= 0 {
+		return strings.Join(out[:height], "\n")
+	}
+
+	if width < 86 {
+		out = append(out, strings.Split(renderNowPlayingInfoStacked(width, remaining, artLines, infoLines), "\n")...)
+		if len(out) > height {
+			out = out[:height]
+		}
+		return strings.Join(out, "\n")
+	}
+
+	textWidth := width - artWidth - 8
+	if textWidth < 24 {
+		out = append(out, strings.Split(renderNowPlayingInfoStacked(width, remaining, artLines, infoLines), "\n")...)
+		if len(out) > height {
+			out = out[:height]
+		}
+		return strings.Join(out, "\n")
+	}
+
+	for i := 0; i < remaining; i++ {
 		left := ""
 		if i < len(artLines) {
 			left = artLines[i]
 		}
 		right := ""
-		if i < len(textLines) {
-			right = textLines[i]
+		if i < len(infoLines) {
+			right = infoLines[i]
 		}
-		out = append(out, fmt.Sprintf("  %-*s  %s", artWidth, truncate(left, artWidth), truncate(right, textWidth)))
+		line := "  " + padStyled(left, artWidth) + "    " + lipgloss.NewStyle().MaxWidth(textWidth).Render(right)
+		out = append(out, line)
+	}
+	if len(out) > height {
+		out = out[:height]
 	}
 	return strings.Join(out, "\n")
+}
+
+func (m Model) nowPlayingDescription() string {
+	desc := strings.TrimSpace(m.metaDesc)
+	if desc != "" {
+		return desc
+	}
+	if m.metaLoading {
+		return "Loading track description..."
+	}
+	if m.metaErr != "" {
+		return "Track metadata unavailable."
+	}
+	return "No description available."
+}
+
+func (m Model) nowPlayingTextLines(width int, desc string) ([]string, []string) {
+	textWidth := max(width-40, 28)
+	headerLines := []string{
+		headerStyle.Render("Track Context"),
+	}
+	channel := strings.TrimSpace(m.metaChannel)
+	if channel == "" && m.nowPlaying != nil {
+		channel = strings.TrimSpace(m.nowPlaying.Artist)
+	}
+	if channel != "" {
+		headerLines = append(headerLines, trackArtistStyle.Render("Channel: "+truncate(channel, textWidth)))
+	}
+	infoLines := []string{
+		dimStyle("Track Description"),
+		"",
+	}
+	for _, line := range wrapText(desc, textWidth, 12) {
+		infoLines = append(infoLines, line)
+	}
+	return headerLines, infoLines
+}
+
+func renderNowPlayingInfoStacked(width, height int, artLines, infoLines []string) string {
+	var out []string
+	maxArtLines := min(len(artLines), max(height/2, 6))
+	for i := 0; i < maxArtLines; i++ {
+		out = append(out, lipgloss.PlaceHorizontal(width, lipgloss.Center, artLines[i]))
+	}
+	if len(out) < height {
+		out = append(out, "")
+	}
+	for _, line := range infoLines {
+		if len(out) >= height {
+			break
+		}
+		out = append(out, "  "+lipgloss.NewStyle().MaxWidth(max(width-4, 1)).Render(line))
+	}
+	for len(out) < height {
+		out = append(out, "")
+	}
+	return strings.Join(out[:height], "\n")
+}
+
+func artworkLines(art string, width int) []string {
+	if strings.TrimSpace(art) == "" {
+		return []string{dimStyle("art unavailable")}
+	}
+	if strings.Contains(art, "\n") {
+		return strings.Split(art, "\n")
+	}
+	return wrapText(art, width, 12)
+}
+
+func padStyled(s string, width int) string {
+	w := lipgloss.Width(s)
+	if w >= width {
+		return lipgloss.NewStyle().MaxWidth(width).Render(s)
+	}
+	return s + strings.Repeat(" ", width-w)
 }
 
 // ── Braille canvas ──────────────────────────────────────────────────────────
@@ -274,34 +332,10 @@ func renderFullViz(bands [vizBandCount]float64, style int, width, height, tick i
 	if width < 6 || height < 2 {
 		return ""
 	}
-
-	switch style {
-	case 0: // bars
-		return renderVizBars(bands, width, height)
-	case 1: // lissajous
-		return renderVizLissajous(bands, width, height, tick)
-	case 2: // oscilloscope
-		return renderVizOscilloscope(bands, width, height, tick)
-	case 3: // radial
-		return renderVizRadial(bands, width, height, tick)
-	case 4: // spiral
-		return renderVizSpiral(bands, width, height, tick)
-	case 5: // starfield
-		return renderVizStarfield(bands, width, height, tick)
-	case 6: // flame
-		return renderVizFlame(bands, width, height, tick)
-	case 7: // plasma
-		return renderVizPlasma(bands, width, height, tick)
-	case 8: // ring
-		return renderVizRing(bands, width, height, tick)
-	case 9: // donut
-		return renderVizDonut(bands, width, height, tick)
-	case 10: // moire
-		return renderVizMoire(bands, width, height, tick)
-	case 11: // mirror bars
-		return renderVizMirrorBars(bands, width, height)
+	if style < 0 || style >= len(vizStyles) {
+		style = 0
 	}
-	return ""
+	return vizStyles[style].render(bands, width, height, tick)
 }
 
 // ── Style 1: Full-height spectrum bars ──────────────────────────────────────

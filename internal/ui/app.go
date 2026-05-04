@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"strings"
@@ -152,6 +151,7 @@ type Model struct {
 	metaErr        string
 	metaDesc       string
 	metaArt        string
+	metaChannel    string
 	metaChannelURL string
 	// Now Playing tab: false = visualizer fills body, true = metadata panel fills body
 	npShowMeta bool
@@ -487,6 +487,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.metaErr = ""
 					m.metaDesc = ""
 					m.metaArt = ""
+					m.metaChannel = ""
 					m.metaChannelURL = ""
 				}
 				m.playStarted = time.Now()
@@ -601,6 +602,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metaErr = ""
 		m.metaDesc = ""
 		m.metaArt = ""
+		m.metaChannel = ""
 		m.metaChannelURL = ""
 		m.status = fmt.Sprintf("Paused: %s — press Space to play", truncate(t.Title, 30))
 		// Seek to saved position after a short delay to let mpv buffer
@@ -654,6 +656,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metaErr = ""
 		m.metaDesc = ""
 		m.metaArt = ""
+		m.metaChannel = ""
 		m.metaChannelURL = ""
 		// Fetch new suggestions for the now-playing track
 		return m, tea.Batch(m.maybeFetchSuggestions(), fetchTrackMetadata(t))
@@ -670,6 +673,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metaErr = ""
 		m.metaDesc = msg.meta.Description
 		m.metaArt = msg.meta.ArtASCII
+		m.metaChannel = msg.meta.Channel
 		m.metaChannelURL = msg.meta.ChannelURL
 		return m, nil
 
@@ -1021,41 +1025,37 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.input.Focus()
 		return m, textinput.Blink
 	case "v":
-		m.vizStyle = (m.vizStyle + 1) % len(vizStyleNames)
-		m.status = fmt.Sprintf("Visualizer: %s", vizStyleNames[m.vizStyle])
-		return m, nil
+		if m.view == ViewNowPlaying {
+			m.vizStyle = (m.vizStyle + 1) % len(vizStyleNames)
+			m.status = fmt.Sprintf("Visualizer: %s", vizStyleNames[m.vizStyle])
+			return m, nil
+		}
 	case "V":
-		// Random viz style (different from current)
-		if len(vizStyleNames) > 1 {
-			for {
-				n := rand.Intn(len(vizStyleNames))
-				if n != m.vizStyle {
-					m.vizStyle = n
-					break
+		if m.view == ViewNowPlaying {
+			// Random viz style (different from current)
+			if len(vizStyleNames) > 1 {
+				for {
+					n := rand.Intn(len(vizStyleNames))
+					if n != m.vizStyle {
+						m.vizStyle = n
+						break
+					}
 				}
 			}
+			m.status = fmt.Sprintf("Visualizer: %s", vizStyleNames[m.vizStyle])
+			return m, nil
 		}
-		m.status = fmt.Sprintf("Visualizer: %s", vizStyleNames[m.vizStyle])
-		return m, nil
 	case "C":
-		m.vizAutoCycle = !m.vizAutoCycle
-		m.vizCycleTick = 0
-		if m.vizAutoCycle {
-			m.status = "Viz auto-cycle: ON"
-		} else {
-			m.status = "Viz auto-cycle: OFF"
+		if m.view == ViewNowPlaying {
+			m.vizAutoCycle = !m.vizAutoCycle
+			m.vizCycleTick = 0
+			if m.vizAutoCycle {
+				m.status = "Viz auto-cycle: ON"
+			} else {
+				m.status = "Viz auto-cycle: OFF"
+			}
+			return m, nil
 		}
-		return m, nil
-	case "]":
-		m.vizAGC = false
-		m.vizBoost = math.Min(m.vizBoost+0.5, 8.0)
-		m.status = fmt.Sprintf("Viz energy: %.1fx (AGC off)", m.vizBoost)
-		return m, nil
-	case "[":
-		m.vizAGC = false
-		m.vizBoost = math.Max(m.vizBoost-0.5, 1.0)
-		m.status = fmt.Sprintf("Viz energy: %.1fx (AGC off)", m.vizBoost)
-		return m, nil
 	case "m":
 		if m.view == ViewNowPlaying {
 			m.npShowMeta = !m.npShowMeta
@@ -1065,15 +1065,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "Now Playing: visualizer"
 			}
 			return m, nil
-		}
-		return m, nil
-	case "G":
-		m.vizAGC = !m.vizAGC
-		if m.vizAGC {
-			m.vizAGCLevel = 0.3 // reset tracking
-			m.status = "Viz AGC: on"
-		} else {
-			m.status = fmt.Sprintf("Viz AGC: off (%.1fx)", m.vizBoost)
 		}
 		return m, nil
 	case "R":
@@ -1381,7 +1372,7 @@ func (m Model) View() string {
 	b.WriteByte('\n')
 
 	// Header
-	title := brandStyle.Render("♪  C H U N E S")
+	title := brandStyle.Render("chunes")
 	b.WriteString(frameRow(lipgloss.PlaceHorizontal(iw, lipgloss.Center, title), iw))
 	b.WriteByte('\n')
 
@@ -1622,6 +1613,7 @@ func (m *Model) playTrack(t player.Track) tea.Cmd {
 	m.metaErr = ""
 	m.metaDesc = ""
 	m.metaArt = ""
+	m.metaChannel = ""
 	m.metaChannelURL = ""
 	// Offline mode: play local file if downloaded
 	if path := m.localFilePath(t); path != "" {
@@ -1638,25 +1630,11 @@ func (m *Model) playNext() tea.Cmd {
 	t := m.queue.Pop()
 	if t == nil {
 		// Queue empty — auto-fill from suggestions if available
-		if len(m.suggestions.tracks) > 0 {
-			// Add all suggestions to the queue and start playing
-			added := 0
-			for _, s := range m.suggestions.tracks {
-				if !m.queue.Contains(s.ID) {
-					m.queue.Add(s)
-					added++
-				}
-			}
-			if added > 0 {
-				if m.queue.Shuffle() {
-					m.queue.ToggleShuffle() // re-shuffle the new batch
-					m.queue.ToggleShuffle()
-				}
-				m.status = fmt.Sprintf("Radio refilled queue (%d tracks)", added)
-				t = m.queue.Pop()
-				if t != nil {
-					return m.playTrack(*t)
-				}
+		if added := m.refillQueueFromSuggestions(3); added > 0 {
+			m.status = fmt.Sprintf("Radio queued %d more tracks", added)
+			t = m.queue.Pop()
+			if t != nil {
+				return m.playTrack(*t)
 			}
 		}
 		m.status = "End of queue"
@@ -1665,6 +1643,31 @@ func (m *Model) playNext() tea.Cmd {
 		return nil
 	}
 	return m.playTrack(*t)
+}
+
+func (m *Model) refillQueueFromSuggestions(limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+
+	added := 0
+	for _, s := range m.suggestions.tracks {
+		if added >= limit {
+			break
+		}
+		if m.queue.Contains(s.ID) {
+			continue
+		}
+		m.queue.Add(s)
+		added++
+	}
+
+	if added > 1 && m.queue.Shuffle() {
+		m.queue.ToggleShuffle()
+		m.queue.ToggleShuffle()
+	}
+
+	return added
 }
 
 func (m *Model) playPrev() tea.Cmd {

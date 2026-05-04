@@ -43,21 +43,35 @@ var helpSections = []helpSection{
 		{"R", "Cycle track rating (★)"},
 		{"l", "Load more suggestions"},
 	}},
+	{"Queue", []helpBinding{
+		{"Del / x", "Remove track"},
+		{"C", "Clear queue"},
+	}},
 	{"Playlists", []helpBinding{
 		{"A", "Queue all"},
+		{"c", "Create playlist"},
 		{"e", "Rename playlist"},
 		{"Z", "Shuffle playlist tracks"},
+		{"J/K", "Reorder track (inside playlist)"},
+		{"Del", "Delete playlist / remove track"},
+	}},
+	{"History", []helpBinding{
+		{"o", "Cycle sort mode"},
+		{"Del / x", "Delete entry"},
+	}},
+	{"Downloads", []helpBinding{
+		{"Del / x", "Delete download"},
 	}},
 	{"Visualizer (Now Playing)", []helpBinding{
 		{"m", "Toggle metadata / visualizer panel"},
 		{"v", "Next viz style"},
 		{"V", "Random viz style"},
 		{"C", "Auto-cycle viz styles"},
-		{"[ ]", "Viz energy down / up"},
-		{"G", "Toggle viz AGC (auto-gain)"},
 	}},
 	{"Help", []helpBinding{
 		{"?", "Toggle this help"},
+		{"j/k", "Scroll help"},
+		{"q / Esc", "Close help"},
 	}},
 }
 

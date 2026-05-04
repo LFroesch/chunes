@@ -14,6 +14,30 @@ const vizBandCount = 24
 // Index 0 = empty, 1-8 = increasing fill
 var blockChars = []string{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 
+type vizStyle struct {
+	name   string
+	render func(bands [vizBandCount]float64, width, height, tick int) string
+}
+
+var vizStyles = []vizStyle{
+	{name: "bars", render: func(bands [vizBandCount]float64, width, height, _ int) string {
+		return renderVizBars(bands, width, height)
+	}},
+	{name: "lissajous", render: renderVizLissajous},
+	{name: "scope", render: renderVizOscilloscope},
+	{name: "radial", render: renderVizRadial},
+	{name: "spiral", render: renderVizSpiral},
+	{name: "starfield", render: renderVizStarfield},
+	{name: "flame", render: renderVizFlame},
+	{name: "plasma", render: renderVizPlasma},
+	{name: "ring", render: renderVizRing},
+	{name: "donut", render: renderVizDonut},
+	{name: "moire", render: renderVizMoire},
+	{name: "mirror", render: func(bands [vizBandCount]float64, width, height, _ int) string {
+		return renderVizMirrorBars(bands, width, height)
+	}},
+}
+
 var vizStyleNames = []string{"bars", "lissajous", "scope", "radial", "spiral", "starfield", "flame", "plasma", "ring", "donut", "moire", "mirror"}
 
 // vizGradientFor returns a color interpolated across the band range.

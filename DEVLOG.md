@@ -1,4 +1,15 @@
 ## DevLog
+### 2026-05-04: V1 launch polish — radio, artwork, visualizer curation
+- **Radio continuation tightened** (`internal/ui/app.go`): when playback reaches the end of the queue, radio mode now queues a small continuation batch instead of dumping the entire current suggestions list into the queue at once.
+- **Artwork renderer replaced** (`internal/youtube/metadata.go`, `internal/ui/nowplaying.go`): swapped noisy grayscale ASCII thumbnails for a color block mosaic with cache-versioning, thumbnail fallback retries, and stale empty-art cache invalidation. The Playing tab metadata layout now keeps the header above the art block and shows channel name instead of a raw URL.
+- **Visualizer controls simplified** (`internal/ui/{app,help,nowplaying,visualizer}.go`): kept the full style set available, but removed the need for manual energy tuning by treating AGC as always on in the main UX.
+- **Visualizer key routing fixed** (`internal/ui/app.go`): Playing-only visualizer hotkeys now fall through on other tabs instead of consuming the keypress globally, so Queue view `C` can reach its own clear-queue handler again.
+- **Sprint cleanup** (`WORK.md`, `README.md`): moved link/channel navigation out of the active v1 launch path and updated docs to reflect the tighter launch-candidate state.
+
+### 2026-05-04: V1 blocker audit + visualizer key scope fix
+- **Work audit** (`WORK.md`): reviewed the sprint list against the live codebase and rewrote it into actual launch blockers, launch polish, recently closed items, and backlog. Removed stale active items such as the already-addressed ASCII/color work.
+- **Queue clear fix** (`internal/ui/app.go`): scoped visualizer hotkeys (`v`, `V`, `C`, `[`, `]`, `G`) to the Playing tab only, which resolves the `C` conflict in Queue view and matches the help text/UI model.
+
 ### 2026-05-01: UX sweep — preflight, ASCII, meta toggle, grouped help
 - **Preflight checks** (`main.go`): aggregate all missing deps and print platform-aware install hints (brew/apt/dnf/pacman). `parec` is now an optional dep — runs without spectrum visualizer when absent.
 - **Better ASCII art** (`internal/youtube/metadata.go`): bumped render size to 48×22, added a 16-step luma ramp, gamma 2.2 correction, and box-average sampling instead of single-pixel sampling. Cached art is denser and more readable.
