@@ -55,6 +55,7 @@ func GetTrackInfo(url string) (player.Track, error) {
 	}
 	return player.Track{
 		ID:       id,
+		URL:      strings.TrimSpace(r.WebpageURL),
 		Title:    r.Title,
 		Artist:   cleanArtist(artist),
 		Duration: formatDuration(r.Duration),
@@ -106,8 +107,13 @@ func Search(query string, limit int, source string) ([]player.Track, error) {
 				id = r.URL
 			}
 		}
+		pageURL := strings.TrimSpace(r.WebpageURL)
+		if pageURL == "" {
+			pageURL = strings.TrimSpace(r.URL)
+		}
 		tracks = append(tracks, player.Track{
 			ID:       id,
+			URL:      pageURL,
 			Title:    r.Title,
 			Artist:   cleanArtist(artist),
 			Duration: formatDuration(r.Duration),

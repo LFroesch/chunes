@@ -142,3 +142,22 @@ func (h *History) Recent(n int) []Entry {
 	}
 	return entries
 }
+
+// PreviousUniqueTrack returns the unique track played immediately before the
+// current one.
+func (h *History) PreviousUniqueTrack(currentID string) *player.Track {
+	if len(h.Entries) == 0 {
+		return nil
+	}
+	for i := len(h.Entries) - 1; i >= 0; i-- {
+		if h.Entries[i].Track.ID != currentID {
+			continue
+		}
+		if i == 0 {
+			return nil
+		}
+		track := h.Entries[i-1].Track
+		return &track
+	}
+	return nil
+}

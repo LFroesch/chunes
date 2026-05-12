@@ -14,6 +14,7 @@ import (
 
 	"github.com/lucas/chunes/internal/config"
 	"github.com/lucas/chunes/internal/player"
+	"github.com/lucas/chunes/internal/youtube"
 )
 
 type Progress struct {
@@ -51,7 +52,9 @@ func LoadLibrary() ([]LibraryEntry, error) {
 
 func SaveLibrary(entries []LibraryEntry) error {
 	dir := config.Dir()
-	os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return err
@@ -125,12 +128,20 @@ func FindDownloadedPath(track player.Track, outputDir, format string) string {
 		if statErr != nil || info.IsDir() {
 			continue
 		}
+		if isPartialDownloadPath(match) {
+			continue
+		}
 		if newest == "" || info.ModTime().UnixNano() > newestModTime {
 			newest = match
 			newestModTime = info.ModTime().UnixNano()
 		}
 	}
 	return newest
+}
+
+func isPartialDownloadPath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".part") || strings.HasSuffix(lower, ".ytdl")
 }
 
 func RemoveFromLibrary(id string) error {
@@ -178,9 +189,10 @@ func Download(track player.Track, outputDir, format string, progressCh chan<- Pr
 	}
 	output := outputBase(track, outputDir) + ".%(ext)s"
 
-	url := track.ID
-	if !strings.HasPrefix(url, "http") {
-		url = fmt.Sprintf("https://www.youtube.com/watch?v=%s", track.ID)
+	url := youtube.PlayableURL(track)
+	if url == "" {
+		progressCh <- Progress{Track: track, Error: fmt.Errorf("empty track URL")}
+		return
 	}
 	args := []string{
 		"-f", "bestaudio",
@@ -239,13 +251,24 @@ func Download(track player.Track, outputDir, format string, progressCh chan<- Pr
 
 	if err := cmd.Wait(); err != nil {
 		wg.Wait()
-		progressCh <- Progress{Track: track, Error: fmt.Errorf("%w: %s", err, errOutput.String())}
+		progressCh <- Progress{Track: track, Error: explainDownloadFailure(err, errOutput.String())}
 		return
 	}
 	wg.Wait()
 
 	path := FindDownloadedPath(track, outputDir, ext)
 	progressCh <- Progress{Track: track, Percent: 100, Done: true, Path: path}
+}
+
+func explainDownloadFailure(err error, details string) error {
+	details = strings.TrimSpace(details)
+	if strings.Contains(strings.ToLower(details), "no supported javascript runtime") {
+		return fmt.Errorf("yt-dlp needs a JavaScript runtime for this download; install nodejs or deno and retry")
+	}
+	if details == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, details)
 }
 
 func sanitizeFilename(name string) string {

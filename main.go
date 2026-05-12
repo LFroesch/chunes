@@ -14,12 +14,21 @@ import (
 	"github.com/lucas/chunes/internal/ui"
 )
 
+var version = "dev"
+
 type dep struct {
 	name, role string
 	required   bool
 }
 
 func main() {
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-v" {
+			fmt.Println("chunes", version)
+			return
+		}
+	}
+
 	deps := []dep{
 		{"mpv", "audio playback", true},
 		{"yt-dlp", "YouTube/SoundCloud stream resolution", true},
@@ -57,6 +66,9 @@ func main() {
 	}
 	for _, d := range missing {
 		fmt.Fprintf(os.Stderr, "note: %s not found — %s will be disabled.\n", d.name, d.role)
+	}
+	if !hasJSRuntime() {
+		fmt.Fprintln(os.Stderr, "note: no JavaScript runtime found — some yt-dlp playback/downloads may require nodejs or deno.")
 	}
 
 	// Load config
@@ -96,6 +108,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+func hasJSRuntime() bool {
+	for _, name := range []string{"node", "deno", "qjs", "js"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func installHint(missing []dep) string {

@@ -21,7 +21,7 @@ var helpSections = []helpSection{
 		{"Space", "Toggle pause (global)"},
 		{"Enter", "Play selected / toggle pause"},
 		{"n", "Next track"},
-		{"p", "Replay current track"},
+		{"p", "Back"},
 		{"0", "Restart track"},
 		{"←/→", "Seek ±5 seconds"},
 		{"</>", "Seek ±30 seconds"},
@@ -63,10 +63,10 @@ var helpSections = []helpSection{
 		{"Del / x", "Delete download"},
 	}},
 	{"Visualizer (Now Playing)", []helpBinding{
-		{"m", "Toggle metadata / visualizer panel"},
-		{"v", "Next viz style"},
-		{"V", "Random viz style"},
-		{"C", "Auto-cycle viz styles"},
+		{"m", "Toggle track info / visualizer view"},
+		{"j/k", "Scroll track info"},
+		{"v / V", "Next / previous viz style"},
+		{"c", "Auto-cycle viz styles"},
 	}},
 	{"Help", []helpBinding{
 		{"?", "Toggle this help"},
@@ -131,73 +131,67 @@ func renderHelp(width, scroll, height int) string {
 	return b.String()
 }
 
-// renderHints returns a compact keybind hint bar for the current context,
-// truncating hints that don't fit within the available width.
+// renderHints returns a single condensed footer row in the sb style:
+// key action · key action · key action
 func renderHints(hints []helpBinding, width int) string {
+	if width < 1 || len(hints) == 0 {
+		return hintBarStyle.Render("")
+	}
+
+	sep := hintSepStyle.Render(" · ")
+	sepW := lipgloss.Width(sep)
+
 	var parts []string
-	totalWidth := 0
+	lineW := 0
 	for _, h := range hints {
-		var part string
-		if h.desc == "" && h.key == "│" {
-			part = hintSepStyle.Render("│")
-		} else {
-			part = hintKeyStyle.Render(h.key) + hintDescStyle.Render(h.desc)
-		}
+		part := hintKeyStyle.Render(h.key) + hintDescStyle.Render(" "+h.desc)
 		partW := lipgloss.Width(part)
-		if totalWidth+partW+1 > width && totalWidth > 0 {
+		extraW := partW
+		if len(parts) > 0 {
+			extraW += sepW
+		}
+		if len(parts) > 0 && lineW+extraW > width {
 			break
 		}
 		parts = append(parts, part)
-		totalWidth += partW + 1 // +1 for space separator
+		lineW += extraW
 	}
-	line := strings.Join(parts, " ")
-	return hintBarStyle.Render(line)
+
+	line := strings.Join(parts, sep)
+	return hintBarStyle.Render(lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
 }
 
 // Context-specific hint sets
 func searchHints(focused bool) []helpBinding {
 	if focused {
 		return []helpBinding{
-			{"Enter", "search"},
-			{"Esc", "cancel"},
+			{"Enter", "find"},
+			{"Esc", "back"},
 		}
 	}
 	return []helpBinding{
-		{"/", " search"},
-		{"Tab", " source"},
-		{"Enter", " play"},
-		{"a", " queue"},
-		{"d", " download"},
-		{"s", " playlist"},
-		{"R", " rate"},
-		{"?", " help"},
+		{"/", "find"},
+		{"Tab", "src"},
+		{"Enter", "play"},
+		{"a", "add"},
 	}
 }
 
 func suggestionsHints() []helpBinding {
 	return []helpBinding{
 		{"Enter", "play"},
-		{"j/k", "navigate"},
-		{"l", "load more"},
-		{"a", "queue"},
-		{"d", "download"},
-		{"s", "playlist"},
-		{"R", "rate"},
-		{"?", "help"},
+		{"a", "add"},
+		{"d", "dl"},
+		{"l", "more"},
 	}
 }
 
 func queueHints() []helpBinding {
 	return []helpBinding{
 		{"Enter", "play"},
-		{"Del", "remove"},
+		{"Del", "rm"},
 		{"C", "clear"},
-		{"j/k", "navigate"},
-		{"a", "queue"},
-		{"d", "download"},
-		{"s", "playlist"},
-		{"R", "rate"},
-		{"?", "help"},
+		{"s", "save"},
 	}
 }
 
@@ -209,69 +203,42 @@ func playlistHints(viewing, creating, renaming bool) []helpBinding {
 		}
 		return []helpBinding{
 			{"Enter", label},
-			{"Esc", "cancel"},
+			{"Esc", "back"},
 		}
 	}
 	if viewing {
 		return []helpBinding{
 			{"Enter", "play"},
-			{"A", "queue all"},
-			{"J/K", "reorder"},
-			{"Z", "shuffle"},
-			{"Del", "remove"},
-			{"a", "queue"},
-			{"d", "download"},
-			{"s", "playlist"},
-			{"R", "rate"},
+			{"A", "all"},
+			{"J/K", "move"},
+			{"Z", "shuf"},
+			{"Del", "rm"},
 			{"Esc", "back"},
-			{"?", "help"},
 		}
 	}
 	return []helpBinding{
 		{"Enter", "open"},
-		{"A", "queue all"},
-		{"c", "create"},
-		{"e", "rename"},
-		{"Z", "shuffle"},
-		{"Del", "delete"},
-		{"?", "help"},
+		{"A", "all"},
+		{"c", "new"},
+		{"e", "ren"},
+		{"Del", "rm"},
 	}
 }
 
 func historyHints() []helpBinding {
 	return []helpBinding{
 		{"Enter", "play"},
-		{"j/k", "navigate"},
-		{"a", "queue"},
-		{"d", "download"},
-		{"s", "playlist"},
-		{"R", "rate"},
+		{"a", "add"},
 		{"o", "sort"},
-		{"Del", "delete"},
-		{"?", "help"},
+		{"Del", "rm"},
 	}
 }
 
 func downloadHints() []helpBinding {
 	return []helpBinding{
 		{"Enter", "play"},
-		{"j/k", "navigate"},
-		{"a", "queue"},
-		{"s", "playlist"},
-		{"R", "rate"},
-		{"Del", "delete"},
-		{"?", "help"},
-	}
-}
-
-func playerHints() []helpBinding {
-	return []helpBinding{
-		{"Space", "pause"},
-		{"n", "next"},
-		{"p", "replay"},
-		{"+/-", "vol"},
-		{"←/→", "seek"},
-		{"R", "rate"},
-		{"v", "viz"},
+		{"a", "add"},
+		{"s", "save"},
+		{"Del", "rm"},
 	}
 }

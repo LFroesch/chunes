@@ -169,24 +169,24 @@ func (m searchModel) View(width, maxHeight int, rf ratingFunc) string {
 	if m.focused {
 		boxStyle = searchBoxFocusedStyle.Width(min(width-4, 70))
 	}
-	b.WriteString(boxStyle.Render(m.input.View()))
+	b.WriteString(centerLine(width, boxStyle.Render(m.input.View())))
 	b.WriteString("\n\n")
 
 	if m.loading {
 		spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		frame := spinnerFrames[(m.spinTick/2)%len(spinnerFrames)]
 		spinner := lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(frame)
-		b.WriteString(fmt.Sprintf("  %s Searching...", spinner))
+		b.WriteString(centerLine(width, fmt.Sprintf("%s Searching...", spinner)))
 		return b.String()
 	}
 	if m.err != nil {
-		b.WriteString(errorStyle.Render("  ✗ " + m.err.Error()))
+		b.WriteString(centerLine(width, errorStyle.Render("✗ "+m.err.Error())))
 		return b.String()
 	}
 	if len(m.results) == 0 {
-		b.WriteString(statusStyle.Render(" 🎵  Press / to search for music"))
+		b.WriteString(centerLine(width, statusStyle.Render("🎵  Press / to search for music")))
 		b.WriteString("\n")
-		b.WriteString(statusStyle.Render(" 🌐  Press Tab to switch source"))
+		b.WriteString(centerLine(width, statusStyle.Render("🌐  Press Tab to switch source")))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -225,7 +225,7 @@ func (m searchModel) View(width, maxHeight int, rf ratingFunc) string {
 
 	// Scroll indicators
 	if hasUp {
-		b.WriteString(dimStyle("  ↑ more") + "\n")
+		b.WriteString(centerLine(width, dimStyle("↑ more")) + "\n")
 	}
 
 	for i := m.scroll; i < end; i++ {
@@ -251,12 +251,12 @@ func (m searchModel) View(width, maxHeight int, rf ratingFunc) string {
 	}
 
 	if end < len(m.results) {
-		b.WriteString(dimStyle("  ↓ more"))
+		b.WriteString(centerLine(width, dimStyle("↓ more")))
 	}
 
 	// Result count
 	b.WriteString("\n")
-	b.WriteString(statusStyle.Render(fmt.Sprintf("  %d results", len(m.results))))
+	b.WriteString(centerLine(width, statusStyle.Render(fmt.Sprintf("%d results", len(m.results)))))
 
 	return b.String()
 }

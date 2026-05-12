@@ -1,48 +1,43 @@
-# Chunes
+# chunes
 
-Terminal-first YouTube music browser/player/radio/downloader. It still understands SoundCloud links and search, but v1 is built around YouTube playback, queueing, offline downloads, and radio-style discovery from the terminal.
+Terminal music player built around YouTube playback, queueing, downloads, and radio-style discovery. `chunes` also understands SoundCloud search and links, but the main flow is YouTube-first.
 
-## Quick Install
+## Install
 
 Supported platforms: Linux and macOS. On Windows, use WSL.
 
-Recommended (installs to `~/.local/bin`):
+Recommended:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LFroesch/chunes/main/install.sh | bash
 ```
 
-Or download a binary from [GitHub Releases](https://github.com/LFroesch/chunes/releases).
-
-Or install with Go:
+Other options:
 
 ```bash
 go install github.com/LFroesch/chunes@latest
-```
-
-Or build from source:
-
-```bash
 make install
 ```
 
-Command:
+Run:
 
 ```bash
 chunes
+chunes --version
 ```
 
 ## Requirements
 
-- Go 1.23+
-- [mpv](https://mpv.io/) — audio playback
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — stream resolution + downloads
-- [ffmpeg](https://ffmpeg.org/) — required for audio downloads/conversion
-- Last.fm API key (optional — improves suggestions but not required)
+- `mpv` for playback
+- `yt-dlp` for stream resolution and downloads
+- `ffmpeg` for transcoded downloads like `mp3` or `opus`
+- Last.fm API key is optional but improves recommendations
+
+If required binaries are missing, `chunes` prints what is missing and how to install it.
 
 ## Config
 
-Config lives at `~/.config/chunes/config.json` and is created automatically on first run.
+Config is created on first run at `~/.config/chunes/config.json`.
 
 ```json
 {
@@ -54,53 +49,57 @@ Config lives at `~/.config/chunes/config.json` and is created automatically on f
 }
 ```
 
-Crossfade runs two mpv instances and blends between them during track transitions.
+Notes:
 
-`audio_format` defaults to `source`, which preserves the best audio stream `yt-dlp` can fetch without re-encoding it. Set it to `opus`, `mp3`, `m4a`, etc. if you want a forced output format instead. Existing configs keep whatever value you already have, so change it manually if you want to switch an older install from `mp3` or `opus`.
-
-`ffmpeg` is only required when you choose a transcoded download format such as `opus` or `mp3`. Source-preserving downloads do not require an extra audio conversion step.
-
-Last.fm key is optional — suggestions work without it using YouTube Radio. Adding a key improves results with Last.fm similar-track data. Get one free at https://www.last.fm/api/account/create
+- `audio_format: "source"` keeps the best stream without re-encoding
+- crossfade uses two `mpv` instances and blends track transitions
+- without a Last.fm key, suggestions still work through YouTube Radio
 
 ## Tabs
 
-| # | Tab | What it does |
-|---|-----|-------------|
-| 1 | Search | YouTube/SoundCloud search (Tab to switch source) |
-| 2 | Playing | Full-screen visualizer + track info, description, and cached color thumbnail art |
-| 3 | Queue | Up next — shuffle, repeat, reorder |
-| 4 | Playlists | Local JSON playlists — create, rename, reorder |
-| 5 | History | Play history with ratings, play counts, and sorting |
-| 6 | Suggest | Similar tracks (YouTube Radio + Last.fm fallback) |
-| 7 | Downloads | Offline library — downloaded tracks play locally |
-
-## Visualizers
-
-12 styles, cycle with `v` or randomize with `V`:
-
-bars, lissajous, scope, radial, spiral, starfield, flame, plasma, ring, donut, moire, mirror
-
-Auto-cycle mode with `C`. Visualizer auto-gain stays on by default so energy stays readable without manual tuning.
+| Tab | Purpose |
+|-----|---------|
+| Search | Search YouTube or SoundCloud |
+| Playing | Current track, visualizer, description, and art |
+| Queue | Up next, reorder, shuffle, repeat |
+| Playlists | Local playlist management |
+| History | Recent playback with ratings and counts |
+| Suggest | Similar tracks and radio continuation |
+| Downloads | Offline library |
 
 ## Features
 
-- **Crossfade** — smooth transitions between tracks (configurable duration)
-- **Track context** — cached descriptions and color-rendered thumbnail art on the Playing tab
-- **Shuffle & repeat** — Fisher-Yates shuffle (every track once per cycle), repeat one/all/off
-- **Ratings** — rate tracks 0-5 stars, persisted across sessions
-- **Mouse support** — click to select, scroll to navigate, click progress bar to seek
-- **Offline playback** — downloaded tracks skip network resolution entirely
-- **Seeking** — arrow keys ±5s, `<`/`>` ±30s, `0` to restart
-- **Replay + gain boost** — `p` replays the current track, volume can be pushed up to 200%
+- Queue music and play it immediately from the terminal
+- Crossfade between tracks
+- Download tracks for offline playback
+- Rate tracks and keep play history
+- Use YouTube Radio with Last.fm as an optional enhancement
+- Switch between 12 visualizer modes on the Playing tab
 
-## Discovery
+## Controls
 
-Suggestions are YouTube-first. The app prefers the seeded YouTube Radio mix for the current track, expands deeper when you load more, uses same-channel pulls for longer mix/DJ uploads, and only leans on Last.fm as a supplement. When the queue runs dry, radio continuation now only seeds a small next batch instead of dumping every suggestion into Up Next.
+Press `?` in-app for the full keymap.
 
-## Key Bindings
+| Key | Action |
+|-----|--------|
+| `1-7` | Switch tabs |
+| `space`, `enter` | Play or pause |
+| `n`, `p`, `0` | Next, back, restart |
+| `left/right`, `</>` | Seek |
+| `+/-` | Volume |
+| `/` | Search |
+| `a` | Add selected track to queue |
+| `d` | Download selected track |
+| `s` | Save to playlist |
+| `R` | Rate selected track |
+| `v`, `V`, `C` | Cycle visualizer, randomize, auto-cycle |
+| `q`, `ctrl+c` | Quit |
 
-Press `?` in-app for the full list. Hints at the bottom of each tab show context-relevant keys.
+## Notes
+
+- `chunes` relies on external media tools and network-backed providers, so first-run quality depends on local `mpv` and `yt-dlp` health.
+- Downloads and config live under `~/.config/chunes` and the directory configured by `download_dir`.
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE).
+[AGPL-3.0](LICENSE)

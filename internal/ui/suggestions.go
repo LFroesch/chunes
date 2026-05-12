@@ -222,20 +222,20 @@ func (m suggestionsModel) View(width, maxHeight int, rf ratingFunc, nowPlaying *
 	var b strings.Builder
 
 	if nowPlaying == nil {
-		b.WriteString(statusStyle.Render("  Play a track to see suggestions"))
+		b.WriteString(centerLine(width, statusStyle.Render("Play a track to see suggestions")))
 		return b.String()
 	}
 
-	header := fmt.Sprintf("  Similar to: %s — %s", truncate(nowPlaying.Title, 30), truncate(nowPlaying.Artist, 20))
-	b.WriteString(headerStyle.Render(header))
+	header := fmt.Sprintf("Similar to: %s — %s", truncate(nowPlaying.Title, 30), truncate(nowPlaying.Artist, 20))
+	b.WriteString(centerLine(width, headerStyle.Render(header)))
 	b.WriteString("\n")
 
 	if m.err != nil {
-		b.WriteString(errorStyle.Render("  ✗ " + m.err.Error()))
+		b.WriteString(centerLine(width, errorStyle.Render("✗ "+m.err.Error())))
 		return b.String()
 	}
 	if len(m.tracks) == 0 && !m.loading {
-		b.WriteString(statusStyle.Render("  No suggestions found for this track"))
+		b.WriteString(centerLine(width, statusStyle.Render("No suggestions found for this track")))
 		return b.String()
 	}
 
@@ -270,7 +270,7 @@ func (m suggestionsModel) View(width, maxHeight int, rf ratingFunc, nowPlaying *
 	}
 
 	if hasUp {
-		b.WriteString(dimStyle("  ↑ more") + "\n")
+		b.WriteString(centerLine(width, dimStyle("↑ more")) + "\n")
 	}
 
 	for i := m.scroll; i < end; i++ {
@@ -298,15 +298,15 @@ func (m suggestionsModel) View(width, maxHeight int, rf ratingFunc, nowPlaying *
 	}
 
 	if end < len(m.tracks) {
-		b.WriteString(dimStyle("  ↓ more"))
+		b.WriteString(centerLine(width, dimStyle("↓ more")))
 	}
 
 	b.WriteString("\n")
-	status := fmt.Sprintf("  %d suggestions", len(m.tracks))
+	status := fmt.Sprintf("%d suggestions", len(m.tracks))
 	if m.loading {
 		status += " (loading more...)"
 	}
-	b.WriteString(statusStyle.Render(status))
+	b.WriteString(centerLine(width, statusStyle.Render(status)))
 
 	return b.String()
 }

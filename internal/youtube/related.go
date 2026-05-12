@@ -113,6 +113,7 @@ func SearchExact(query string, limit int) ([]player.Track, error) {
 		}
 		tracks = append(tracks, player.Track{
 			ID:       r.ID,
+			URL:      fmt.Sprintf("https://www.youtube.com/watch?v=%s", r.ID),
 			Title:    r.Title,
 			Artist:   cleanArtist(artist),
 			Duration: formatDuration(r.Duration),
@@ -172,6 +173,7 @@ func GetChannelVideos(channelURL string, limit int) ([]player.Track, error) {
 		dur, _ := strconv.ParseFloat(durStr, 64)
 		tracks = append(tracks, player.Track{
 			ID:         id,
+			URL:        fmt.Sprintf("https://www.youtube.com/watch?v=%s", id),
 			Title:      title,
 			Artist:     cleanArtist(channel),
 			Duration:   formatDuration(dur),
@@ -219,6 +221,7 @@ func GetRelated(videoID string, limit int) ([]player.Track, error) {
 		dur, _ := strconv.ParseFloat(durStr, 64)
 		tracks = append(tracks, player.Track{
 			ID:       id,
+			URL:      fmt.Sprintf("https://www.youtube.com/watch?v=%s", id),
 			Title:    title,
 			Artist:   cleanArtist(channel),
 			Duration: formatDuration(dur),

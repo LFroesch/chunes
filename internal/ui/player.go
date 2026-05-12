@@ -26,7 +26,7 @@ func renderPlayerBar(track *player.Track, position, duration float64, volume int
 
 	// Track info
 	titleMax := max(width/3, 15)
-	artistMax := max(width/5, 10)
+	artistMax := max(width/4, 10)
 
 	title := trackTitleStyle.Render(truncate(track.Title, titleMax))
 	artist := trackArtistStyle.Render(truncate(track.Artist, artistMax))
@@ -65,8 +65,18 @@ func renderPlayerBar(track *player.Track, position, duration float64, volume int
 		modeStr = "  " + strings.Join(modes, " ")
 	}
 
-	// Progress bar
-	barWidth := max(width-16, 10) // leave room for time + vol
+	// Rating stars
+	ratingStr := ""
+	if rating > 0 {
+		stars := strings.Repeat("★", rating) + strings.Repeat("☆", 5-rating)
+		ratingStr = "  " + lipgloss.NewStyle().Foreground(warnColor).Render(stars)
+	}
+
+	line1Content := fmt.Sprintf("%s  %s  %s%s%s", icon, title, artist, ratingStr, modeStr)
+
+	line2Fixed := fmt.Sprintf("%s  %s", timeStr, volStr)
+	fixedWidth := lipgloss.Width(line2Fixed)
+	barWidth := max(width-fixedWidth-6, 10)
 	progress := 0.0
 	if duration > 0 {
 		progress = position / duration
@@ -76,17 +86,15 @@ func renderPlayerBar(track *player.Track, position, duration float64, volume int
 	// Gradient-filled progress bar
 	var barParts strings.Builder
 	for j := 0; j < filled; j++ {
-		// Gradient from bright to dim across the filled portion
 		frac := float64(j) / float64(max(filled, 1))
-		r := int(0xFF - frac*0x8D) // FF→72
-		g := int(0x6A + frac*0x87) // 6A→F1
-		b2 := int(0xC1 - frac*0x09) // C1→B8
+		r := int(0xFF - frac*0x8D)
+		g := int(0x6A + frac*0x87)
+		b2 := int(0xC1 - frac*0x09)
 		color := lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b2))
 		barParts.WriteString(lipgloss.NewStyle().Foreground(color).Render("━"))
 	}
 	barFilled := barParts.String()
 	barEmpty := lipgloss.NewStyle().Foreground(lipgloss.Color("#333333")).Render(strings.Repeat("─", barWidth-filled))
-	// Playhead dot
 	dot := ""
 	if filled < barWidth {
 		barEmpty = lipgloss.NewStyle().Foreground(primaryColor).Render("●") +
@@ -96,15 +104,10 @@ func renderPlayerBar(track *player.Track, position, duration float64, volume int
 	}
 	bar := barFilled + barEmpty + dot
 
-	// Rating stars
-	ratingStr := ""
-	if rating > 0 {
-		stars := strings.Repeat("★", rating) + strings.Repeat("☆", 5-rating)
-		ratingStr = "  " + lipgloss.NewStyle().Foreground(warnColor).Render(stars)
-	}
+	line2Content := fmt.Sprintf("%s  %s", bar, line2Fixed)
 
-	line1 := fmt.Sprintf("  %s  %s  %s%s%s", icon, title, artist, ratingStr, modeStr)
-	line2 := fmt.Sprintf("  %s  %s  %s", bar, timeStr, volStr)
+	line1 := lipgloss.PlaceHorizontal(width, lipgloss.Center, line1Content)
+	line2 := lipgloss.PlaceHorizontal(width, lipgloss.Center, line2Content)
 
 	return line1 + "\n" + line2
 }

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -62,6 +61,13 @@ type urlTrackInfoMsg struct {
 	err   error
 }
 
+type radioNextMsg struct {
+	track  player.Track
+	url    string
+	queued []player.Track
+	err    error
+}
+
 type trackMetadataMsg struct {
 	trackID string
 	meta    youtube.Metadata
@@ -117,7 +123,7 @@ type Model struct {
 	vizTick       int
 	vizBandLevels [player.BandCount]float64 // real per-band frequency levels
 	spectrum      *player.Spectrum          // PulseAudio FFT analyzer (nil if unavailable)
-	vizBoost      float64                   // energy multiplier (default 2.5, adjustable with [/])
+	vizBoost      float64                   // energy multiplier, auto-shaped by AGC
 	vizAGC        bool                      // auto-gain control
 	vizAGCLevel   float64                   // slow-moving avg energy for AGC
 	vizAutoCycle  bool                      // auto-rotate viz styles
@@ -153,8 +159,9 @@ type Model struct {
 	metaArt        string
 	metaChannel    string
 	metaChannelURL string
-	// Now Playing tab: false = visualizer fills body, true = metadata panel fills body
-	npShowMeta bool
+	// Now Playing tab: false = visualizer fills body, true = track-info view fills body
+	npShowMeta   bool
+	npMetaScroll int
 
 	// Crossfade state
 	activeIsB      bool // false=A is active, true=B is active
@@ -177,24 +184,29 @@ func NewModel(cfg *config.Config, mpvA, mpvB *player.MPV) Model {
 		lfm = lastfm.NewClient(cfg.LastFMKey)
 	}
 	m := Model{
-		cfg:         cfg,
-		mpvA:        mpvA,
-		mpvB:        mpvB,
-		queue:       player.NewQueue(),
-		history:     hist,
-		view:        ViewSearch,
-		search:      newSearchModel(),
-		suggestions: newSuggestionsModel(),
-		queueView:   newQueueModel(),
-		playlists:   newPlaylistModel(),
-		histView:    newHistoryModel(),
-		downloads:   newDownloadModel(cfg.DownloadDir, cfg.AudioFormat),
-		picker:      newPickerModel(),
-		lastfm:      lfm,
-		spectrum:    player.NewSpectrum(), // nil if parec unavailable
-		vizBoost:    2.5,
-		vizAGC:      true,
-		vizAGCLevel: 0.3,
+		cfg:          cfg,
+		mpvA:         mpvA,
+		mpvB:         mpvB,
+		queue:        player.NewQueue(),
+		history:      hist,
+		view:         ViewSearch,
+		search:       newSearchModel(),
+		suggestions:  newSuggestionsModel(),
+		queueView:    newQueueModel(),
+		playlists:    newPlaylistModel(),
+		histView:     newHistoryModel(),
+		downloads:    newDownloadModel(cfg.DownloadDir, cfg.AudioFormat),
+		picker:       newPickerModel(),
+		lastfm:       lfm,
+		spectrum:     player.NewSpectrum(), // nil if parec unavailable
+		vizBoost:     cfg.VisualizerIntensity,
+		vizAGC:       true,
+		vizAGCLevel:  0.24,
+		vizAutoCycle: cfg.VisualizerAutoCycle,
+	}
+	m.vizStyle = vizStyleIndex(cfg.VisualizerStyle)
+	if cfg.VisualizerBackend == "mpv-rms" {
+		m.spectrum = nil
 	}
 
 	// Restore session state (queue, shuffle, repeat)
@@ -324,7 +336,7 @@ func (m *Model) resumeSession(t player.Track, pos float64) tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
-		url, err := youtube.GetStreamURL(t.ID)
+		url, err := youtube.GetStreamURLForTrack(t)
 		return sessionResumeMsg{track: t, url: url, pos: pos, err: err}
 	}
 }
@@ -337,7 +349,7 @@ func tickCmd() tea.Cmd {
 
 func getStreamURL(t player.Track) tea.Cmd {
 	return func() tea.Msg {
-		url, err := youtube.GetStreamURL(t.ID)
+		url, err := youtube.GetStreamURLForTrack(t)
 		return streamURLMsg{track: t, url: url, err: err}
 	}
 }
@@ -392,7 +404,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Slow exponential smoothing on the running average
 			m.vizAGCLevel = m.vizAGCLevel*0.98 + avg*0.02
 			// Nudge boost toward the target; clamp to manual range
-			const agcTarget = 0.35
+			const agcTarget = 0.42
 			if m.vizAGCLevel > 0.01 {
 				ratio := agcTarget / m.vizAGCLevel
 				// Move 1% toward the needed boost per tick (slow = stable)
@@ -400,8 +412,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.vizBoost < 1.0 {
 					m.vizBoost = 1.0
 				}
-				if m.vizBoost > 8.0 {
-					m.vizBoost = 8.0
+				if m.vizBoost > 6.0 {
+					m.vizBoost = 6.0
 				}
 			}
 		}
@@ -700,6 +712,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.playTrack(msg.track)
 
+	case radioNextMsg:
+		if msg.err != nil {
+			m.err = fmt.Sprintf("Radio error: %s", msg.err)
+			m.status = ""
+			m.activeMPV().Playing = false
+			m.nowPlaying = nil
+			return m, nil
+		}
+		if msg.url == "" || msg.track.ID == "" {
+			m.status = "End of queue"
+			m.activeMPV().Playing = false
+			m.nowPlaying = nil
+			return m, nil
+		}
+		for _, t := range msg.queued {
+			if !m.queue.Contains(t.ID) {
+				m.queue.Add(t)
+			}
+		}
+		if len(msg.queued) == 0 {
+			m.status = "Radio playing next track"
+		} else {
+			m.status = fmt.Sprintf("Radio queued %d more tracks", len(msg.queued)+1)
+		}
+		m.resetCrossfade()
+		m.err = ""
+		m.resumePos = 0
+		m.resumeCanceled = true
+		m.loadingTrackID = msg.track.ID
+		m.playStarted = time.Now()
+		m.metaTrackID = msg.track.ID
+		m.metaLoading = true
+		m.metaErr = ""
+		m.metaDesc = ""
+		m.metaArt = ""
+		m.metaChannel = ""
+		m.metaChannelURL = ""
+		m.npMetaScroll = 0
+		return m, func() tea.Msg {
+			return streamURLMsg{track: msg.track, url: msg.url, err: nil}
+		}
+
 	case searchResultsMsg:
 		m.search, _ = m.search.Update(msg)
 		m.status = fmt.Sprintf("Found %d results", len(m.search.results))
@@ -956,7 +1010,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		return m, m.playNext()
 	case "p":
-		return m, m.replayTrack()
+		return m, m.playPrev()
 	case "0":
 		if m.nowPlaying != nil && m.activeMPV().Playing {
 			m.activeMPV().SeekAbsolute(0)
@@ -1027,27 +1081,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		if m.view == ViewNowPlaying {
 			m.vizStyle = (m.vizStyle + 1) % len(vizStyleNames)
+			m.cfg.VisualizerStyle = vizStyleNames[m.vizStyle]
 			m.status = fmt.Sprintf("Visualizer: %s", vizStyleNames[m.vizStyle])
 			return m, nil
 		}
 	case "V":
 		if m.view == ViewNowPlaying {
-			// Random viz style (different from current)
-			if len(vizStyleNames) > 1 {
-				for {
-					n := rand.Intn(len(vizStyleNames))
-					if n != m.vizStyle {
-						m.vizStyle = n
-						break
-					}
-				}
+			m.vizStyle--
+			if m.vizStyle < 0 {
+				m.vizStyle = len(vizStyleNames) - 1
 			}
+			m.cfg.VisualizerStyle = vizStyleNames[m.vizStyle]
 			m.status = fmt.Sprintf("Visualizer: %s", vizStyleNames[m.vizStyle])
 			return m, nil
 		}
-	case "C":
+	case "c":
 		if m.view == ViewNowPlaying {
 			m.vizAutoCycle = !m.vizAutoCycle
+			m.cfg.VisualizerAutoCycle = m.vizAutoCycle
 			m.vizCycleTick = 0
 			if m.vizAutoCycle {
 				m.status = "Viz auto-cycle: ON"
@@ -1059,8 +1110,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "m":
 		if m.view == ViewNowPlaying {
 			m.npShowMeta = !m.npShowMeta
+			m.npMetaScroll = 0
 			if m.npShowMeta {
-				m.status = "Now Playing: metadata panel"
+				m.status = "Now Playing: track info"
 			} else {
 				m.status = "Now Playing: visualizer"
 			}
@@ -1170,6 +1222,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search, cmd = m.search.Update(msg)
 		m.ensureAllVisible()
 		return m, cmd
+
+	case ViewNowPlaying:
+		if m.npShowMeta {
+			switch key {
+			case "up", "k":
+				if m.npMetaScroll > 0 {
+					m.npMetaScroll--
+				}
+			case "down", "j":
+				m.npMetaScroll++
+			}
+		}
+		return m, nil
 
 	case ViewSuggestions:
 		switch key {
@@ -1381,7 +1446,7 @@ func (m Model) View() string {
 	b.WriteByte('\n')
 
 	// Tab row
-	b.WriteString(frameRow(m.renderTabs(iw), iw))
+	b.WriteString(frameRow(lipgloss.PlaceHorizontal(iw, lipgloss.Center, m.renderTabs(iw)), iw))
 	b.WriteByte('\n')
 
 	// Divider
@@ -1434,7 +1499,7 @@ func (m Model) View() string {
 	} else if m.status != "" {
 		statusContent = statusBarStyle.Render(" ● " + m.status)
 	}
-	b.WriteString(frameRow(statusContent, iw))
+	b.WriteString(frameRow(lipgloss.PlaceHorizontal(iw, lipgloss.Center, statusContent), iw))
 	b.WriteByte('\n')
 
 	// Keybind hints
@@ -1509,6 +1574,28 @@ func (m Model) currentHints() []helpBinding {
 		return []helpBinding{{"?", "help"}}
 	}
 
+	if m.confirm.active {
+		return []helpBinding{
+			{"y", "yes"},
+			{"n", "no"},
+		}
+	}
+
+	if m.picker.active {
+		return []helpBinding{
+			{"Enter", "save"},
+			{"c", "new"},
+			{"Esc", "back"},
+		}
+	}
+
+	if m.showHelp {
+		return []helpBinding{
+			{"j/k", "scroll"},
+			{"q", "close"},
+		}
+	}
+
 	var hints []helpBinding
 
 	switch m.view {
@@ -1516,6 +1603,9 @@ func (m Model) currentHints() []helpBinding {
 		hints = searchHints(m.search.focused)
 	case ViewNowPlaying:
 		hints = nowPlayingHints()
+		if m.npShowMeta {
+			hints = append([]helpBinding{{"j/k", "scroll"}}, hints...)
+		}
 	case ViewSuggestions:
 		hints = suggestionsHints()
 	case ViewQueue:
@@ -1528,22 +1618,47 @@ func (m Model) currentHints() []helpBinding {
 		hints = downloadHints()
 	}
 
-	// Narrow: show only the first 3 view hints + help
-	if m.width < 60 {
-		if len(hints) > 3 {
-			hints = hints[:3]
+	if !m.inputActive() {
+		switch m.view {
+		case ViewNowPlaying:
+			hints = append([]helpBinding{{"Space", "pause"}, {"←/→", "seek"}}, hints...)
+		default:
+			hints = append(hints, helpBinding{"1-7", "views"})
 		}
+	}
+
+	if !containsHint(hints, "?") {
 		hints = append(hints, helpBinding{"?", "help"})
+	}
+	if !m.inputActive() && !containsHint(hints, "Esc") && !containsHint(hints, "q") && !containsHint(hints, "Esc/q") {
+		hints = append(hints, helpBinding{"Esc/q", "back"})
+	}
+
+	// Narrow: keep the bar very selective.
+	if m.width < 60 {
+		if len(hints) > 4 {
+			hints = hints[:4]
+		}
+		if !containsHint(hints, "?") {
+			if len(hints) == 4 {
+				hints[3] = helpBinding{"?", "help"}
+			} else {
+				hints = append(hints, helpBinding{"?", "help"})
+			}
+		}
 		return hints
 	}
 
-	// Add player hints when not in text input mode
-	if !m.inputActive() {
-		hints = append(hints, helpBinding{"│", ""})
-		hints = append(hints, playerHints()...)
-	}
-
 	return hints
+}
+
+func containsHint(hints []helpBinding, key string) bool {
+	for _, h := range hints {
+		if h.key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) preloadNextURL(t player.Track) tea.Cmd {
@@ -1554,7 +1669,7 @@ func (m *Model) preloadNextURL(t player.Track) tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
-		url, err := youtube.GetStreamURL(t.ID)
+		url, err := youtube.GetStreamURLForTrack(t)
 		return crossfadePreloadMsg{track: t, url: url, err: err}
 	}
 }
@@ -1615,6 +1730,7 @@ func (m *Model) playTrack(t player.Track) tea.Cmd {
 	m.metaArt = ""
 	m.metaChannel = ""
 	m.metaChannelURL = ""
+	m.npMetaScroll = 0
 	// Offline mode: play local file if downloaded
 	if path := m.localFilePath(t); path != "" {
 		m.status = fmt.Sprintf("Playing (local): %s", truncate(t.Title, 30))
@@ -1629,12 +1745,22 @@ func (m *Model) playTrack(t player.Track) tea.Cmd {
 func (m *Model) playNext() tea.Cmd {
 	t := m.queue.Pop()
 	if t == nil {
-		// Queue empty — auto-fill from suggestions if available
-		if added := m.refillQueueFromSuggestions(3); added > 0 {
-			m.status = fmt.Sprintf("Radio queued %d more tracks", added)
-			t = m.queue.Pop()
-			if t != nil {
-				return m.playTrack(*t)
+		// Queue empty — use cached suggestions first, otherwise fetch radio results now.
+		if m.cfg.RadioEnabled {
+			if added := m.refillQueueFromSuggestions(m.cfg.RadioAutoFillCount); added > 0 {
+				if added == 1 {
+					m.status = "Radio queued the next track"
+				} else {
+					m.status = fmt.Sprintf("Radio queued %d more tracks", added)
+				}
+				t = m.queue.Pop()
+				if t != nil {
+					return m.playTrack(*t)
+				}
+			}
+			if m.nowPlaying != nil {
+				m.status = "Radio finding next track..."
+				return m.fetchRadioNext(*m.nowPlaying, max(m.cfg.RadioAutoFillCount, 1))
 			}
 		}
 		m.status = "End of queue"
@@ -1646,7 +1772,7 @@ func (m *Model) playNext() tea.Cmd {
 }
 
 func (m *Model) refillQueueFromSuggestions(limit int) int {
-	if limit <= 0 {
+	if !m.cfg.RadioEnabled || limit <= 0 {
 		return 0
 	}
 
@@ -1670,22 +1796,72 @@ func (m *Model) refillQueueFromSuggestions(limit int) int {
 	return added
 }
 
-func (m *Model) playPrev() tea.Cmd {
-	// No history stack — prev is not supported with consume queue
-	m.status = "No previous track"
-	return nil
+func (m *Model) fetchRadioNext(seed player.Track, limit int) tea.Cmd {
+	if limit <= 0 {
+		limit = 1
+	}
+	client := m.lastfm
+	existing := make([]player.Track, 0, len(m.suggestions.tracks))
+	for _, t := range m.suggestions.tracks {
+		existing = append(existing, t)
+	}
+	return func() tea.Msg {
+		fetchCount := max(limit+2, 3)
+		ch, producer := startSuggestionFetch(client, seed, existing, fetchCount)
+		go producer()
+		var candidates []player.Track
+		for t := range ch {
+			if len(candidates) < fetchCount {
+				candidates = append(candidates, t)
+			}
+		}
+		if len(candidates) == 0 {
+			return radioNextMsg{err: fmt.Errorf("no radio suggestions available for %s", truncate(seed.Title, 30))}
+		}
+		for i, candidate := range candidates {
+			url, err := youtube.GetStreamURLForTrack(candidate)
+			if err != nil || url == "" {
+				continue
+			}
+			var queued []player.Track
+			for _, t := range candidates[i+1:] {
+				if len(queued) >= max(limit-1, 0) {
+					break
+				}
+				queued = append(queued, t)
+			}
+			return radioNextMsg{track: candidate, url: url, queued: queued}
+		}
+		return radioNextMsg{err: fmt.Errorf("radio found tracks for %s, but none were playable", truncate(seed.Title, 30))}
+	}
 }
 
-func (m *Model) replayTrack() tea.Cmd {
+func (m *Model) playPrev() tea.Cmd {
 	if m.nowPlaying == nil {
 		return nil
 	}
-	m.status = "Replay current track"
-	return m.playTrack(*m.nowPlaying)
+
+	const restartThreshold = 5.0
+	if m.activeMPV().CachedPosition > restartThreshold {
+		m.activeMPV().SeekAbsolute(0)
+		m.status = "Restarted track"
+		return nil
+	}
+
+	prev := m.history.PreviousUniqueTrack(m.nowPlaying.ID)
+	if prev == nil {
+		m.activeMPV().SeekAbsolute(0)
+		m.status = "Restarted track"
+		return nil
+	}
+
+	m.status = fmt.Sprintf("Previous: %s", truncate(prev.Title, 30))
+	return m.playTrack(*prev)
 }
 
 func (m *Model) startDownload(t player.Track) tea.Cmd {
-	m.downloads.add(t)
+	m.downloads.begin(t)
+	m.err = ""
 	m.status = fmt.Sprintf("Downloading: %s", truncate(t.Title, 30))
 	m.view = ViewDownloads
 
@@ -1742,6 +1918,13 @@ func (m Model) handleScrollWheel(button tea.MouseButton) (tea.Model, tea.Cmd) {
 		}
 		if m.search.cursor >= len(m.search.results) {
 			m.search.cursor = max(len(m.search.results)-1, 0)
+		}
+	case ViewNowPlaying:
+		if m.npShowMeta {
+			m.npMetaScroll += delta
+			if m.npMetaScroll < 0 {
+				m.npMetaScroll = 0
+			}
 		}
 	case ViewSuggestions:
 		m.suggestions.cursor += delta
@@ -1860,7 +2043,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Player bar area - progress bar is on the second player line
 	// After content: div + status + hints + player1 + player2
-	playerLine2 := contentEnd + 3 + 1 // +3 for div+status+hints, +1 for player line 1
+	playerLine2 := contentEnd + 3 + 1
 	if y == playerLine2 && m.activeMPV().Playing {
 		// Map X to seek position - bar starts at col 3, width is iw-16
 		barStart := 3
@@ -2053,7 +2236,7 @@ func (m *Model) maybeFetchSuggestions() tea.Cmd {
 	t := *m.nowPlaying
 	client := m.lastfm
 	forID := t.ID
-	ch, producer := startSuggestionFetch(client, t, nil, 25)
+	ch, producer := startSuggestionFetch(client, t, nil, m.cfg.RadioPrefetchCount)
 	go producer()
 	return func() tea.Msg {
 		return waitForSuggestion(ch, forID)()
@@ -2071,8 +2254,7 @@ func (m *Model) loadMoreSuggestions() tea.Cmd {
 	forID := t.ID
 	existing := make([]player.Track, len(m.suggestions.tracks))
 	copy(existing, m.suggestions.tracks)
-	// Each "load more" asks for 25 more results, skipping what we have
-	ch, producer := startSuggestionFetch(client, t, existing, 25)
+	ch, producer := startSuggestionFetch(client, t, existing, m.cfg.RadioPrefetchCount)
 	go producer()
 	return func() tea.Msg {
 		return waitForSuggestion(ch, forID)()

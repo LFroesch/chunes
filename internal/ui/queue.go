@@ -52,11 +52,11 @@ func (m queueModel) View(q *player.Queue, width, maxHeight int, rf ratingFunc) s
 	tracks := q.Tracks()
 
 	if len(tracks) == 0 {
-		b.WriteString(statusStyle.Render("  Queue is empty — search and press 'a' to add tracks"))
+		b.WriteString(centerLine(width, statusStyle.Render("Queue is empty — search and press 'a' to add tracks")))
 		return b.String()
 	}
 
-	b.WriteString(headerStyle.Render(fmt.Sprintf("  Up Next (%d tracks)", len(tracks))))
+	b.WriteString(centerLine(width, headerStyle.Render(fmt.Sprintf("Up Next (%d tracks)", len(tracks)))))
 	b.WriteString("\n")
 
 	// Column widths: fixed = Dur(5) + Rate(5) + Plays(5) + spacing(14) = ~29
@@ -90,7 +90,7 @@ func (m queueModel) View(q *player.Queue, width, maxHeight int, rf ratingFunc) s
 	}
 
 	if hasUp {
-		b.WriteString(dimStyle("  ↑ more") + "\n")
+		b.WriteString(centerLine(width, dimStyle("↑ more")) + "\n")
 	}
 
 	for i := m.scroll; i < end; i++ {
@@ -118,7 +118,7 @@ func (m queueModel) View(q *player.Queue, width, maxHeight int, rf ratingFunc) s
 	}
 
 	if end < len(tracks) {
-		b.WriteString(dimStyle("  ↓ more"))
+		b.WriteString(centerLine(width, dimStyle("↓ more")))
 	}
 
 	return b.String()

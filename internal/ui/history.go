@@ -125,15 +125,15 @@ func (m historyModel) View(width, maxHeight int) string {
 
 	if len(m.entries) == 0 {
 		b.WriteString("\n")
-		b.WriteString(statusStyle.Render("     ♪ · · ·") + "\n\n")
-		b.WriteString(statusStyle.Render("  No play history yet — search and play some music!"))
+		b.WriteString(centerLine(width, statusStyle.Render("♪ · · ·")) + "\n\n")
+		b.WriteString(centerLine(width, statusStyle.Render("No play history yet — search and play some music!")))
 		return b.String()
 	}
 
-	b.WriteString(headerStyle.Render(fmt.Sprintf("  History (%d tracks)  ·  Sort: %s", len(m.allEntries), sortModeNames[m.sortMode])))
+	b.WriteString(centerLine(width, headerStyle.Render(fmt.Sprintf("History (%d tracks)  ·  Sort: %s", len(m.allEntries), sortModeNames[m.sortMode]))))
 	b.WriteString("\n")
 	if stats := historyStats(m.allEntries); stats != "" {
-		b.WriteString(dimStyle(stats) + "\n")
+		b.WriteString(centerLine(width, dimStyle(strings.TrimSpace(stats))) + "\n")
 	}
 
 	// Apply sort
@@ -171,7 +171,7 @@ func (m historyModel) View(width, maxHeight int) string {
 	}
 
 	if hasUp {
-		b.WriteString(dimStyle("  ↑ more") + "\n")
+		b.WriteString(centerLine(width, dimStyle("↑ more")) + "\n")
 	}
 
 	for i := m.scroll; i < end; i++ {
@@ -203,7 +203,7 @@ func (m historyModel) View(width, maxHeight int) string {
 	}
 
 	if end < len(entries) {
-		b.WriteString(dimStyle("  ↓ more"))
+		b.WriteString(centerLine(width, dimStyle("↓ more")))
 	}
 
 	return b.String()

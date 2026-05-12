@@ -152,25 +152,25 @@ func (m playlistModel) View(width, maxHeight int, rf ratingFunc) string {
 	var b strings.Builder
 
 	if m.creating {
-		b.WriteString(headerStyle.Render("  New Playlist"))
+		b.WriteString(centerLine(width, headerStyle.Render("New Playlist")))
 		b.WriteString("\n")
 		boxStyle := searchBoxFocusedStyle.Width(min(width-4, 50))
-		b.WriteString(boxStyle.Render(m.nameInput.View()))
+		b.WriteString(centerLine(width, boxStyle.Render(m.nameInput.View())))
 		return b.String()
 	}
 
 	if m.renaming {
-		b.WriteString(headerStyle.Render("  Rename Playlist"))
+		b.WriteString(centerLine(width, headerStyle.Render("Rename Playlist")))
 		b.WriteString("\n")
 		boxStyle := searchBoxFocusedStyle.Width(min(width-4, 50))
-		b.WriteString(boxStyle.Render(m.nameInput.View()))
+		b.WriteString(centerLine(width, boxStyle.Render(m.nameInput.View())))
 		return b.String()
 	}
 
 	if m.viewing {
 		pl := m.selectedPlaylist()
 		if pl != nil {
-			b.WriteString(headerStyle.Render(fmt.Sprintf("  %s (%d tracks)", pl.Name, len(pl.Tracks))))
+			b.WriteString(centerLine(width, headerStyle.Render(fmt.Sprintf("%s (%d tracks)", pl.Name, len(pl.Tracks)))))
 			b.WriteString("\n")
 
 			fixedCols := 28
@@ -222,11 +222,11 @@ func (m playlistModel) View(width, maxHeight int, rf ratingFunc) string {
 	}
 
 	if len(m.playlists) == 0 {
-		b.WriteString(statusStyle.Render("  No playlists — press 'c' to create one"))
+		b.WriteString(centerLine(width, statusStyle.Render("No playlists — press 'c' to create one")))
 		return b.String()
 	}
 
-	b.WriteString(headerStyle.Render("  Playlists"))
+	b.WriteString(centerLine(width, headerStyle.Render("Playlists")))
 	b.WriteString("\n")
 
 	nameW := width/2 - 4
@@ -256,7 +256,7 @@ func (m playlistModel) View(width, maxHeight int, rf ratingFunc) string {
 	}
 
 	if hasUp {
-		b.WriteString(dimStyle("  ↑ more") + "\n")
+		b.WriteString(centerLine(width, dimStyle("↑ more")) + "\n")
 	}
 
 	for i := m.scroll; i < end; i++ {
@@ -275,7 +275,7 @@ func (m playlistModel) View(width, maxHeight int, rf ratingFunc) string {
 	}
 
 	if end < len(m.playlists) {
-		b.WriteString(dimStyle("  ↓ more"))
+		b.WriteString(centerLine(width, dimStyle("↓ more")))
 	}
 
 	return b.String()

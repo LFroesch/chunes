@@ -5,11 +5,11 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // placeOverlay renders the overlay centered on top of the background.
-// It writes overlay lines over the middle of the background string.
-// Uses lipgloss.MaxWidth for ANSI-safe truncation of background lines.
+// It preserves the background content on both sides of the overlaid lines.
 func placeOverlay(width, height int, overlay, background string) string {
 	bgLines := strings.Split(background, "\n")
 	olLines := strings.Split(overlay, "\n")
@@ -37,20 +37,24 @@ func placeOverlay(width, height int, overlay, background string) string {
 		if y >= len(bgLines) {
 			break
 		}
-		// ANSI-safe: truncate background to startX visual columns
 		bg := bgLines[y]
-		left := lipgloss.NewStyle().MaxWidth(startX).Render(bg)
+		left := ansi.Cut(bg, 0, startX)
 		leftW := lipgloss.Width(left)
 		if leftW < startX {
 			left += strings.Repeat(" ", startX-leftW)
 		}
-		// Pad right side to maintain full width
+
 		olLineW := lipgloss.Width(olLine)
-		rightPad := width - startX - olLineW
-		if rightPad < 0 {
-			rightPad = 0
+		right := ""
+		if startX+olLineW < width {
+			right = ansi.Cut(bg, startX+olLineW, width)
 		}
-		bgLines[y] = left + olLine + strings.Repeat(" ", rightPad)
+
+		line := left + olLine + right
+		if lineW := lipgloss.Width(line); lineW < width {
+			line += strings.Repeat(" ", width-lineW)
+		}
+		bgLines[y] = line
 	}
 
 	return strings.Join(bgLines, "\n")
@@ -238,4 +242,11 @@ func frameRow(content string, innerW int) string {
 		pad = 0
 	}
 	return bv + content + strings.Repeat(" ", pad) + bv
+}
+
+func centerLine(width int, content string) string {
+	if width < 1 {
+		return content
+	}
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, content)
 }

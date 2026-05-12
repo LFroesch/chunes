@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucas/chunes/internal/player"
@@ -20,25 +21,39 @@ type vizStyle struct {
 }
 
 var vizStyles = []vizStyle{
-	{name: "bars", render: func(bands [vizBandCount]float64, width, height, _ int) string {
-		return renderVizBars(bands, width, height)
-	}},
-	{name: "lissajous", render: renderVizLissajous},
-	{name: "scope", render: renderVizOscilloscope},
-	{name: "radial", render: renderVizRadial},
-	{name: "spiral", render: renderVizSpiral},
-	{name: "starfield", render: renderVizStarfield},
-	{name: "flame", render: renderVizFlame},
 	{name: "plasma", render: renderVizPlasma},
+	{name: "nebula", render: renderVizNebula},
+	{name: "aurora", render: renderVizAurora},
+	{name: "supernova", render: renderVizSupernova},
+	{name: "vortex", render: renderVizVortex},
+	{name: "eclipse", render: renderVizEclipse},
+	{name: "pulsegrid", render: renderVizPulseGrid},
+	{name: "scope", render: renderVizOscilloscope},
+	{name: "lissajous", render: renderVizLissajous},
+	{name: "moire", render: renderVizMoire},
+	{name: "ribbons", render: renderVizRibbons},
+	{name: "warp", render: renderVizWarp},
+	{name: "tunnel", render: renderVizTunnel},
+	{name: "helix", render: renderVizHelix},
 	{name: "ring", render: renderVizRing},
 	{name: "donut", render: renderVizDonut},
-	{name: "moire", render: renderVizMoire},
+	{name: "spiral", render: renderVizSpiral},
+	{name: "constellation", render: renderVizConstellation},
+	{name: "shards", render: renderVizShards},
+	{name: "flame", render: renderVizFlame},
+	{name: "starfield", render: renderVizStarfield},
+	{name: "cube", render: renderVizCube},
+	{name: "gridwarp", render: renderVizGridWarp},
+	{name: "metaballs", render: renderVizMetaballs},
 	{name: "mirror", render: func(bands [vizBandCount]float64, width, height, _ int) string {
 		return renderVizMirrorBars(bands, width, height)
 	}},
+	{name: "radial", render: renderVizRadial},
+	{name: "cascade", render: renderVizCascade},
+	{name: "horizon", render: renderVizHorizon},
 }
 
-var vizStyleNames = []string{"bars", "lissajous", "scope", "radial", "spiral", "starfield", "flame", "plasma", "ring", "donut", "moire", "mirror"}
+var vizStyleNames = []string{"plasma", "nebula", "aurora", "supernova", "vortex", "eclipse", "pulsegrid", "scope", "lissajous", "moire", "ribbons", "warp", "tunnel", "helix", "ring", "donut", "spiral", "constellation", "shards", "flame", "starfield", "cube", "gridwarp", "metaballs", "mirror", "radial", "cascade", "horizon"}
 
 // vizGradientFor returns a color interpolated across the band range.
 func vizGradientFor(bandIdx, totalBands int) lipgloss.Color {
@@ -151,4 +166,14 @@ func updateVizBands(bands *[vizBandCount]float64, bandLevels [player.BandCount]f
 			}
 		}
 	}
+}
+
+func vizStyleIndex(name string) int {
+	name = strings.TrimSpace(strings.ToLower(name))
+	for i, styleName := range vizStyleNames {
+		if styleName == name {
+			return i
+		}
+	}
+	return 0
 }

@@ -82,7 +82,6 @@ func NewMPV() (*MPV, error) {
 	cmd.Process.Kill()
 	return nil, fmt.Errorf("mpv socket did not appear at %s", socketPath)
 }
-
 func (m *MPV) sendCommand(args ...interface{}) (*mpvResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -33,7 +33,8 @@ func newDownloadModel(outputDir, format string) downloadModel {
 	m := downloadModel{outputDir: outputDir, format: format}
 	// Load completed downloads from library
 	entries, _ := download.LoadLibrary()
-	for _, e := range entries {
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
 		m.items = append(m.items, downloadItem{
 			track:   e.Track,
 			percent: 100,
@@ -44,14 +45,46 @@ func newDownloadModel(outputDir, format string) downloadModel {
 	return m
 }
 
+func (m *downloadModel) prepend(item downloadItem) {
+	m.items = append([]downloadItem{item}, m.items...)
+	m.cursor = 0
+	m.scroll = 0
+}
+
+func (m *downloadModel) moveToFront(index int) {
+	if index <= 0 || index >= len(m.items) {
+		return
+	}
+	item := m.items[index]
+	copy(m.items[1:index+1], m.items[0:index])
+	m.items[0] = item
+	m.cursor = 0
+	m.scroll = 0
+}
+
 func (m *downloadModel) add(t player.Track) {
 	// Don't add if already exists
-	for _, item := range m.items {
+	for i, item := range m.items {
 		if item.track.ID == t.ID {
+			m.moveToFront(i)
 			return
 		}
 	}
-	m.items = append(m.items, downloadItem{track: t})
+	m.prepend(downloadItem{track: t})
+}
+
+func (m *downloadModel) begin(t player.Track) {
+	for i := range m.items {
+		if m.items[i].track.ID == t.ID {
+			m.items[i].percent = 0
+			m.items[i].done = false
+			m.items[i].err = nil
+			m.items[i].path = ""
+			m.moveToFront(i)
+			return
+		}
+	}
+	m.prepend(downloadItem{track: t})
 }
 
 func (m *downloadModel) updateProgress(p download.Progress) {
@@ -112,13 +145,13 @@ func (m downloadModel) View(width, maxHeight int, rf ratingFunc) string {
 	var b strings.Builder
 
 	if len(m.items) == 0 {
-		b.WriteString(statusStyle.Render("  No downloads — press 'd' on a track to download"))
+		b.WriteString(centerLine(width, statusStyle.Render("No downloads — press 'd' on a track to download")))
 		b.WriteString("\n\n")
-		b.WriteString(statusStyle.Render(fmt.Sprintf("  Download dir: %s", m.outputDir)))
+		b.WriteString(centerLine(width, statusStyle.Render(fmt.Sprintf("Download dir: %s", m.outputDir))))
 		return b.String()
 	}
 
-	b.WriteString(headerStyle.Render(fmt.Sprintf("  Downloads (%d)  →  %s", len(m.items), m.outputDir)))
+	b.WriteString(centerLine(width, headerStyle.Render(fmt.Sprintf("Downloads (%d)  →  %s", len(m.items), m.outputDir))))
 	b.WriteString("\n")
 
 	// Fixed cols: Dur(5) + Rate(5) + Plays(5) + Progress(20) + Status(8) + spacing(17) = ~60
@@ -152,7 +185,7 @@ func (m downloadModel) View(width, maxHeight int, rf ratingFunc) string {
 	}
 
 	if hasUp {
-		b.WriteString(dimStyle("  ↑ more") + "\n")
+		b.WriteString(centerLine(width, dimStyle("↑ more")) + "\n")
 	}
 
 	for i := m.scroll; i < end; i++ {
@@ -200,7 +233,7 @@ func (m downloadModel) View(width, maxHeight int, rf ratingFunc) string {
 	}
 
 	if end < len(m.items) {
-		b.WriteString(dimStyle("  ↓ more"))
+		b.WriteString(centerLine(width, dimStyle("↓ more")))
 	}
 
 	return b.String()
